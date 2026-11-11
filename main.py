@@ -4,6 +4,8 @@ from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 import anthropic
 import os
+import requests
+import base64
 
 app = FastAPI()
 
@@ -16,6 +18,7 @@ app.add_middleware(
 )
 
 client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
+ELEVENLABS_API_KEY = os.environ.get("ELEVENLABS_API_KEY")
 
 class ImagePayload(BaseModel):
     image: str
@@ -34,6 +37,7 @@ async def serve_hud():
             h1 { font-size: 1.2rem; letter-spacing: 2px; margin-bottom: 15px; }
             video { width: 100%; max-width: 500px; border: 2px solid #00ffcc; border-radius: 10px; margin-bottom: 20px; background: #000; }
             button { background-color: #00ffcc; color: #0b111e; border: none; padding: 15px 30px; font-weight: bold; border-radius: 5px; font-size: 1rem; cursor: pointer; box-shadow: 0 0 15px rgba(0, 255, 204, 0.4); }
+            button:active { background-color: #00cc99; }
             #status { margin-top: 20px; color: #aaa; text-align: center; max-width: 500px; line-height: 1.4; padding: 0 10px; }
         </style>
     </head>
@@ -53,9 +57,7 @@ async def serve_hud():
                 .catch(err => { status.innerText = "Camera access error: " + err.message; });
 
             btn.addEventListener('click', async () => {
-                status.innerText = "Analyzing live feed with Claude...";
-                const primingUtterance = new SpeechSynthesisUtterance("Analyzing surroundings...");
-                window.speechSynthesis.speak(primingUtterance);
+                status.innerText = "Analyzing surroundings via J.A.R.V.I.S...";
 
                 const canvas = document.createElement('canvas');
                 canvas.width = video.videoWidth || 640;
@@ -70,12 +72,17 @@ async def serve_hud():
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ image: base64Image })
                     });
+                    
                     const data = await response.json();
                     
-                    if (data.response) {
-                        status.innerText = data.response;
-                        const reply = new SpeechSynthesisUtterance(data.response);
-                        window.speechSynthesis.speak(reply);
+                    if (data.description && data.audio_base64) {
+                        status.innerText = data.description;
+                        
+                        // Play the incoming ElevenLabs MP3 stream on mobile/desktop
+                        const audio = new Audio("data:audio/mpeg;base64," + data.audio_base64);
+                        audio.play().catch(e => {
+                            status.innerText += " (Audio playback blocked by browser - tap screen again)";
+                        });
                     } else if (data.error) {
                         status.innerText = "Error: " + data.error;
                     }
@@ -95,10 +102,15 @@ async def analyze_surroundings(payload: ImagePayload):
         if "," in image_data:
             image_data = image_data.split(",")[1]
 
-        # Updated to active current model ID
+        # 1. Claude vision call with strict formatting rules to prevent reading symbols/asterisks
         message = client.messages.create(
-            model="claude-sonnet-4-6",
-            max_tokens=300,
+            model="claude-sonnet-5-5",
+            max_tokens=150,
+            system=(
+                "You are J.A.R.V.I.S., an advanced AI chief of staff. "
+                "CRITICAL FORMATTING RULE: Never output markdown formatting, bullet points, asterisks, hashtags, or special characters. "
+                "Write purely in short, conversational sentences that sound completely natural when spoken out loud by a voice synthesizer."
+            ),
             messages=[
                 {
                     "role": "user",
@@ -113,12 +125,45 @@ async def analyze_surroundings(payload: ImagePayload):
                         },
                         {
                             "type": "text",
-                            "text": "You are J.A.R.V.I.S., an advanced AI HUD assistant. Describe what you see in front of you concisely, accurately, and with a helpful sci-fi assistant tone, as if speaking directly to your user."
+                            "text": "Describe what you see in front of you concisely as J.A.R.V.I.S. reporting to your user."
                         }
                     ],
                 }
             ],
         )
-        return {"response": message.content[0].text}
+        
+        description = message.content[0].text
+
+        # 2. ElevenLabs Text-to-Speech API integration
+        voice_id = "pNInz6obpgDQGcFmaJgB" # You can swap this to your custom cloned voice ID if preferred
+        elevenlabs_url = f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}"
+        
+        headers = {
+            "Accept": "audio/mpeg",
+            "Content-Type": "application/json",
+            "xi-api-key": ELEVENLABS_API_KEY
+        }
+        
+        data = {
+            "text": description,
+            "model_id": "eleven_multilingual_v2",
+            "voice_settings": {
+                "stability": 0.5,
+                "similarity_boost": 0.75
+            }
+        }
+
+        tts_response = requests.post(elevenlabs_url, json=data, headers=headers)
+        
+        if tts_response.status_code != 200:
+            return {"error": f"ElevenLabs Error: {tts_response.text}"}
+
+        audio_base64 = base64.b64encode(tts_response.content).decode("utf-8")
+
+        return {
+            "description": description,
+            "audio_base64": audio_base64
+        }
+        
     except Exception as e:
         return {"error": str(e)}
