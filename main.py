@@ -135,7 +135,7 @@ async def analyze_surroundings(payload: ImagePayload):
         description = message.content[0].text
 
         # 2. ElevenLabs Text-to-Speech API integration
-        voice_id = "pNInz6obpgDQGcFmaJgB" # You can swap this to your custom cloned voice ID if preferred
+        voice_id = "kZcoyALmepyQ92ntFnwY" # You can swap this to your custom cloned voice ID if preferred
         elevenlabs_url = f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}"
         
         headers = {
