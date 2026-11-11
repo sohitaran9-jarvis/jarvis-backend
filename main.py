@@ -1,18 +1,13 @@
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
+from pydantic import BaseModel
 import anthropic
-import base64
-import json
 import os
 
 app = FastAPI()
 
-# Initialize Anthropic client using environment variables
-client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
-from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
-
-# 1. Enable CORS so your mobile HUD can communicate with Render
+# Enable CORS for cross-origin mobile browser requests
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -21,18 +16,118 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-class ImagePayload(BaseModel):
-    image: str # Base64 encoded image string from frontend
+# Initialize Anthropic client using environment variables
+client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
 
+class ImagePayload(BaseModel):
+    image: str
+
+# Serve the complete mobile HUD interface directly from the backend
+@app.get("/", response_class=HTMLResponse)
+async def serve_hud():
+    return """
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>J.A.R.V.I.S. CLOUD HUD</title>
+        <style>
+            body { 
+                background-color: #0b111e; 
+                color: #00ffcc; 
+                font-family: monospace; 
+                display: flex; 
+                flex-direction: column; 
+                align-items: center; 
+                padding: 20px; 
+                margin: 0;
+            }
+            h1 { font-size: 1.2rem; letter-spacing: 2px; margin-bottom: 15px; }
+            video { width: 100%; max-width: 500px; border: 2px solid #00ffcc; border-radius: 10px; margin-bottom: 20px; background: #000; }
+            button { 
+                background-color: #00ffcc; 
+                color: #0b111e; 
+                border: none; 
+                padding: 15px 30px; 
+                font-weight: bold; 
+                border-radius: 5px; 
+                font-size: 1rem; 
+                cursor: pointer; 
+                box-shadow: 0 0 15px rgba(0, 255, 204, 0.4);
+            }
+            button:active { background-color: #00cc99; }
+            #status { margin-top: 20px; color: #aaa; text-align: center; max-width: 500px; line-height: 1.4; padding: 0 10px; }
+        </style>
+    </head>
+    <body>
+        <h1>J.A.R.V.I.S. CLOUD HUD</h1>
+        <video id="webcam" autoplay playsinline muted></video>
+        <button id="analyze-btn">Analyze Surroundings</button>
+        <div id="status">System Ready. Point camera and tap analyze.</div>
+
+        <script>
+            const video = document.getElementById('webcam');
+            const btn = document.getElementById('analyze-btn');
+            const status = document.getElementById('status');
+
+            // Initialize mobile back/front camera feed
+            navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } })
+                .then(stream => { 
+                    video.srcObject = stream; 
+                })
+                .catch(err => { 
+                    status.innerText = "Camera access denied or unavailable: " + err.message; 
+                });
+
+            btn.addEventListener('click', async () => {
+                status.innerText = "Analyzing live feed with Claude...";
+                
+                // Prime mobile Safari speech synthesis context inside user click event
+                const primingUtterance = new SpeechSynthesisUtterance("Analyzing surroundings...");
+                window.speechSynthesis.speak(primingUtterance);
+
+                // Capture current frame from video stream onto a canvas
+                const canvas = document.createElement('canvas');
+                canvas.width = video.videoWidth || 640;
+                canvas.height = video.videoHeight || 480;
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+                const base64Image = canvas.toDataURL('image/jpeg');
+
+                try {
+                    const response = await fetch('/analyze', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ image: base64Image })
+                    });
+                    const data = await response.json();
+                    
+                    if (data.response) {
+                        status.innerText = data.response;
+                        // Speak out Claude's response
+                        const reply = new SpeechSynthesisUtterance(data.response);
+                        window.speechSynthesis.speak(reply);
+                    } else if (data.error) {
+                        status.innerText = "Error: " + data.error;
+                    }
+                } catch (err) {
+                    status.innerText = "Failed to communicate with backend.";
+                }
+            });
+        </script>
+    </body>
+    </html>
+    """
+
+# Backend Vision endpoint to talk to Claude 3.5 Sonnet
 @app.post("/analyze")
 async def analyze_surroundings(payload: ImagePayload):
     try:
-        # Strip data URL prefix if present (e.g., "data:image/jpeg;base64,")
         image_data = payload.image
         if "," in image_data:
             image_data = image_data.split(",")[1]
 
-        # Call Claude 3.5 Sonnet with Vision
         message = client.messages.create(
             model="claude-3-5-sonnet-20241022",
             max_tokens=300,
@@ -56,114 +151,6 @@ async def analyze_surroundings(payload: ImagePayload):
                 }
             ],
         )
-        
-        response_text = message.content[0].text
-        return {"response": response_text}
-        
+        return {"response": message.content[0].text}
     except Exception as e:
         return {"error": str(e)}
-
-@app.get("/")
-def home():
-    return {"status": "J.A.R.V.I.S. Cloud Backend is Live"}
-
-MOBILE_HTML = """
-<!DOCTYPE html>
-<html>
-<head>
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>J.A.R.V.I.S. Cloud HUD</title>
-    <style>
-        body { background: #0b0f19; color: #00ffcc; font-family: monospace; text-align: center; margin: 0; padding: 20px; }
-        video { width: 100%; max-width: 400px; border: 2px solid #00ffcc; border-radius: 10px; }
-        button { background: #00ffcc; color: #0b0f19; border: none; padding: 15px 30px; font-size: 18px; font-weight: bold; border-radius: 8px; margin-top: 20px; cursor: pointer; }
-        #response { margin-top: 20px; font-size: 16px; padding: 15px; background: #111827; border: 1px solid #1f2937; border-radius: 5px; text-align: left; max-width: 400px; margin-left: auto; margin-right: auto; }
-    </style>
-</head>
-<body>
-    <h2>J.A.R.V.I.S. CLOUD HUD</h2>
-    <video id="video" autoplay playsinline></video><br>
-    <button onclick="sendFrame()">Analyze Surroundings</button>
-    <div id="response">Status: Online globally. Tap button to scan.</div>
-    <canvas id="canvas" style="display:none;"></canvas>
-
-    <script>
-        const video = document.getElementById('video');
-        const wsProtocol = window.location.protocol === 'https:' ? 'wss://' : 'ws://';
-        const ws = new WebSocket(wsProtocol + window.location.host + '/ws');
-
-        navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } })
-            .then(stream => { video.srcObject = stream; })
-            .catch(err => { document.getElementById('response').innerText = "Camera Error: " + err; });
-
-        ws.onmessage = function(event) {
-            document.getElementById('response').innerText = "J.A.R.V.I.S.: " + event.data;
-            let utterance = new SpeechSynthesisUtterance(event.data);
-            window.speechSynthesis.speak(utterance);
-        };
-
-        function sendFrame() {
-            if (video.videoWidth === 0) return;
-            const canvas = document.getElementById('canvas');
-            canvas.width = video.videoWidth;
-            canvas.height = video.videoHeight;
-            const ctx = canvas.getContext('2d');
-            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-            
-            const base64Data = canvas.toDataURL('image/jpeg', 0.7).split(',')[1];
-            
-            document.getElementById('response').innerText = "Analyzing live feed with Claude...";
-            ws.send(JSON.stringify({
-                image: base64Data,
-                prompt: "Identify what is in front of my camera right now concisely and address me as Sir."
-            }));
-        }
-    </script>
-</body>
-</html>
-"""
-
-@app.get("/", response_class=HTMLResponse)
-async def get_mobile_hud():
-    return MOBILE_HTML
-
-@app.websocket("/ws")
-async def websocket_endpoint(websocket: WebSocket):
-    await websocket.accept()
-    try:
-        while True:
-            data = await websocket.receive_text()
-            parsed = json.loads(data)
-            
-            image_bytes = base64.b64decode(parsed["image"])
-            prompt = parsed["prompt"]
-            
-            # Send frame to Claude's Vision API
-            response = client.messages.create(
-                model="claude-3-5-sonnet-20241022",
-                max_tokens=300,
-                messages=[
-                    {
-                        "role": "user",
-                        "content": [
-                            {
-                                "type": "image",
-                                "source": {
-                                    "type": "base64",
-                                    "media_type": "image/jpeg",
-                                    "data": base64.b64encode(image_bytes).decode("utf-8"),
-                                },
-                            },
-                            {
-                                "type": "text",
-                                "text": prompt
-                            }
-                        ],
-                    }
-                ],
-            )
-            
-            reply = response.content[0].text
-            await websocket.send_text(reply)
-    except WebSocketDisconnect:
-        pass
