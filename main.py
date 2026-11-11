@@ -23,7 +23,7 @@ ELEVENLABS_API_KEY = os.environ.get("ELEVENLABS_API_KEY")
 class ImagePayload(BaseModel):
     image: str
 
-@app.get("/", response_class=HTMLResponse)
+@app.api_route("/", methods=["GET", "HEAD"], response_class=HTMLResponse)
 async def serve_hud():
     return """
     <!DOCTYPE html>
@@ -102,7 +102,7 @@ async def analyze_surroundings(payload: ImagePayload):
             image_data = image_data.split(",")[1]
 
         message = client.messages.create(
-            model="claude-3-5-sonnet-20241022",
+            model="claude-3-5-sonnet-latest",
             max_tokens=150,
             system=(
                 "You are J.A.R.V.I.S., an advanced AI chief of staff. "
