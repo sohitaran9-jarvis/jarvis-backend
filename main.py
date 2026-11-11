@@ -9,6 +9,63 @@ app = FastAPI()
 
 # Initialize Anthropic client using environment variables
 client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
+
+# 1. Enable CORS so your mobile HUD can communicate with Render
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+class ImagePayload(BaseModel):
+    image: str # Base64 encoded image string from frontend
+
+@app.post("/analyze")
+async def analyze_surroundings(payload: ImagePayload):
+    try:
+        # Strip data URL prefix if present (e.g., "data:image/jpeg;base64,")
+        image_data = payload.image
+        if "," in image_data:
+            image_data = image_data.split(",")[1]
+
+        # Call Claude 3.5 Sonnet with Vision
+        message = client.messages.create(
+            model="claude-3-5-sonnet-20241022",
+            max_tokens=300,
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "image",
+                            "source": {
+                                "type": "base64",
+                                "media_type": "image/jpeg",
+                                "data": image_data,
+                            },
+                        },
+                        {
+                            "type": "text",
+                            "text": "You are J.A.R.V.I.S., an advanced AI HUD assistant. Describe what you see in front of you concisely, accurately, and with a helpful sci-fi assistant tone, as if speaking directly to your user."
+                        }
+                    ],
+                }
+            ],
+        )
+        
+        response_text = message.content[0].text
+        return {"response": response_text}
+        
+    except Exception as e:
+        return {"error": str(e)}
+
+@app.get("/")
+def home():
+    return {"status": "J.A.R.V.I.S. Cloud Backend is Live"}
 
 MOBILE_HTML = """
 <!DOCTYPE html>
