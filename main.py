@@ -78,7 +78,6 @@ async def serve_hud():
                     if (data.description && data.audio_base64) {
                         status.innerText = data.description;
                         
-                        // Play the incoming ElevenLabs MP3 stream on mobile/desktop
                         const audio = new Audio("data:audio/mpeg;base64," + data.audio_base64);
                         audio.play().catch(e => {
                             status.innerText += " (Audio playback blocked by browser - tap screen again)";
@@ -102,9 +101,8 @@ async def analyze_surroundings(payload: ImagePayload):
         if "," in image_data:
             image_data = image_data.split(",")[1]
 
-        # 1. Claude vision call with strict formatting rules to prevent reading symbols/asterisks
         message = client.messages.create(
-            model="claude-sonnet-5-5",
+            model="claude-3-5-sonnet-20241022",
             max_tokens=150,
             system=(
                 "You are J.A.R.V.I.S., an advanced AI chief of staff. "
@@ -132,10 +130,12 @@ async def analyze_surroundings(payload: ImagePayload):
             ],
         )
         
-        description = message.content[0].text
+        description = next(
+            (block.text for block in message.content if getattr(block, "type", None) == "text"),
+            "System error: could not parse visual response."
+        )
 
-        # 2. ElevenLabs Text-to-Speech API integration
-        voice_id = "kZcoyALmepyQ92ntFnwY" # You can swap this to your custom cloned voice ID if preferred
+        voice_id = "kZcoyALmepyQ92ntFnwY"
         elevenlabs_url = f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}"
         
         headers = {
