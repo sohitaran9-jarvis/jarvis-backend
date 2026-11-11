@@ -101,8 +101,9 @@ async def analyze_surroundings(payload: ImagePayload):
         if "," in image_data:
             image_data = image_data.split(",")[1]
 
+        # Using standard Haiku model string compatible with all active API tiers
         message = client.messages.create(
-            model="claude-3-5-sonnet-latest",
+            model="claude-3-haiku-20240307",
             max_tokens=150,
             system=(
                 "You are J.A.R.V.I.S., an advanced AI chief of staff. "
