@@ -17,16 +17,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# --- DIAGNOSTIC CHECK ON STARTUP ---
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "").strip()
 ELEVENLABS_API_KEY = os.environ.get("ELEVENLABS_API_KEY", "").strip()
-
-print("--- STARTUP DIAGNOSTIC ---")
-if ANTHROPIC_API_KEY:
-    print(f"ANTHROPIC_API_KEY loaded successfully. Starts with: {ANTHROPIC_API_KEY[:6]}...")
-else:
-    print("CRITICAL: ANTHROPIC_API_KEY is completely missing or empty in Render!")
-print("----------------------------")
 
 client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 
@@ -114,8 +106,9 @@ async def analyze_surroundings(payload: ImagePayload):
         if "," in image_data:
             image_data = image_data.split(",")[1]
 
+        # Updated to standard Sonnet 3.5 model identifier string
         message = client.messages.create(
-            model="claude-3-haiku-20240307",
+            model="claude-3-5-sonnet-20241022",
             max_tokens=150,
             system=(
                 "You are J.A.R.V.I.S., an advanced AI chief of staff. "
