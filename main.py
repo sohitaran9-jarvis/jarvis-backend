@@ -21,7 +21,6 @@ class ImagePayload(BaseModel):
     image: str
 
 @app.get("/", response_class=HTMLResponse)
-@app.get("/index.html", response_class=HTMLResponse)
 async def serve_hud():
     return """
     <!DOCTYPE html>
@@ -96,9 +95,9 @@ async def analyze_surroundings(payload: ImagePayload):
         if "," in image_data:
             image_data = image_data.split(",")[1]
 
-        # Uses the official dynamic sonnet model alias
+        # Updated to active current model ID
         message = client.messages.create(
-            model="claude-3-5-sonnet-latest",
+            model="claude-sonnet-4-6",
             max_tokens=300,
             messages=[
                 {
