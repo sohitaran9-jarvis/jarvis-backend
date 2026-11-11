@@ -7,7 +7,6 @@ import os
 
 app = FastAPI()
 
-# Enable CORS for cross-origin mobile browser requests
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -16,13 +15,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Initialize Anthropic client using environment variables
 client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
 
 class ImagePayload(BaseModel):
     image: str
 
-# Serve the complete mobile HUD interface directly from the backend
 @app.get("/", response_class=HTMLResponse)
 async def serve_hud():
     return """
@@ -33,30 +30,10 @@ async def serve_hud():
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <title>J.A.R.V.I.S. CLOUD HUD</title>
         <style>
-            body { 
-                background-color: #0b111e; 
-                color: #00ffcc; 
-                font-family: monospace; 
-                display: flex; 
-                flex-direction: column; 
-                align-items: center; 
-                padding: 20px; 
-                margin: 0;
-            }
+            body { background-color: #0b111e; color: #00ffcc; font-family: monospace; display: flex; flex-direction: column; align-items: center; padding: 20px; margin: 0; }
             h1 { font-size: 1.2rem; letter-spacing: 2px; margin-bottom: 15px; }
             video { width: 100%; max-width: 500px; border: 2px solid #00ffcc; border-radius: 10px; margin-bottom: 20px; background: #000; }
-            button { 
-                background-color: #00ffcc; 
-                color: #0b111e; 
-                border: none; 
-                padding: 15px 30px; 
-                font-weight: bold; 
-                border-radius: 5px; 
-                font-size: 1rem; 
-                cursor: pointer; 
-                box-shadow: 0 0 15px rgba(0, 255, 204, 0.4);
-            }
-            button:active { background-color: #00cc99; }
+            button { background-color: #00ffcc; color: #0b111e; border: none; padding: 15px 30px; font-weight: bold; border-radius: 5px; font-size: 1rem; cursor: pointer; box-shadow: 0 0 15px rgba(0, 255, 204, 0.4); }
             #status { margin-top: 20px; color: #aaa; text-align: center; max-width: 500px; line-height: 1.4; padding: 0 10px; }
         </style>
     </head>
@@ -64,30 +41,22 @@ async def serve_hud():
         <h1>J.A.R.V.I.S. CLOUD HUD</h1>
         <video id="webcam" autoplay playsinline muted></video>
         <button id="analyze-btn">Analyze Surroundings</button>
-        <div id="status">System Ready. Point camera and tap analyze.</div>
+        <div id="status">System Ready</div>
 
         <script>
             const video = document.getElementById('webcam');
             const btn = document.getElementById('analyze-btn');
             const status = document.getElementById('status');
 
-            // Initialize mobile back/front camera feed
             navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } })
-                .then(stream => { 
-                    video.srcObject = stream; 
-                })
-                .catch(err => { 
-                    status.innerText = "Camera access denied or unavailable: " + err.message; 
-                });
+                .then(stream => { video.srcObject = stream; })
+                .catch(err => { status.innerText = "Camera access error: " + err.message; });
 
             btn.addEventListener('click', async () => {
                 status.innerText = "Analyzing live feed with Claude...";
-                
-                // Prime mobile Safari speech synthesis context inside user click event
                 const primingUtterance = new SpeechSynthesisUtterance("Analyzing surroundings...");
                 window.speechSynthesis.speak(primingUtterance);
 
-                // Capture current frame from video stream onto a canvas
                 const canvas = document.createElement('canvas');
                 canvas.width = video.videoWidth || 640;
                 canvas.height = video.videoHeight || 480;
@@ -105,7 +74,6 @@ async def serve_hud():
                     
                     if (data.response) {
                         status.innerText = data.response;
-                        // Speak out Claude's response
                         const reply = new SpeechSynthesisUtterance(data.response);
                         window.speechSynthesis.speak(reply);
                     } else if (data.error) {
@@ -120,7 +88,6 @@ async def serve_hud():
     </html>
     """
 
-# Backend Vision endpoint to talk to Claude 3.5 Sonnet
 @app.post("/analyze")
 async def analyze_surroundings(payload: ImagePayload):
     try:
@@ -128,8 +95,9 @@ async def analyze_surroundings(payload: ImagePayload):
         if "," in image_data:
             image_data = image_data.split(",")[1]
 
+        # Updated to universally supported model identifier
         message = client.messages.create(
-            model="claude-3-5-sonnet-20241022",
+            model="claude-3-5-sonnet-20240620",
             max_tokens=300,
             messages=[
                 {
