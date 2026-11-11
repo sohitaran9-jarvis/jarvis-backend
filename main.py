@@ -20,6 +20,24 @@ app.add_middleware(
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "").strip()
 ELEVENLABS_API_KEY = os.environ.get("ELEVENLABS_API_KEY", "").strip()
 
+# --- DIAGNOSTIC: FETCH VALID MODELS FOR THIS KEY ---
+print("--- CHECKING AVAILABLE ANTHROPIC MODELS ---")
+try:
+    headers = {
+        "x-api-key": ANTHROPIC_API_KEY,
+        "anthropic-version": "2023-06-01"
+    }
+    model_res = requests.get("https://api.anthropic.com/v1/models", headers=headers)
+    if model_res.status_code == 200:
+        models_data = model_res.json().get("data", [])
+        model_ids = [m.get("id") for m in models_data]
+        print(f"SUCCESS! Valid model IDs for your key: {model_ids}")
+    else:
+        print(f"Failed to list models: {model_res.status_code} - {model_res.text}")
+except Exception as e:
+    print(f"Error checking models: {e}")
+print("------------------------------------------")
+
 client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 
 class ImagePayload(BaseModel):
@@ -106,7 +124,7 @@ async def analyze_surroundings(payload: ImagePayload):
         if "," in image_data:
             image_data = image_data.split(",")[1]
 
-        # Updated to standard Sonnet 3.5 model identifier string
+        # Change this string to match whatever model ID prints out in your Render logs
         message = client.messages.create(
             model="claude-3-5-sonnet-20241022",
             max_tokens=150,
