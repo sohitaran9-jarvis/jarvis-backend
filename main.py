@@ -17,8 +17,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
-ELEVENLABS_API_KEY = os.environ.get("ELEVENLABS_API_KEY")
+ELEVENLABS_API_KEY = os.environ.get("ELEVENLABS_API_KEY", "").strip()
+ANTHROPIC_KEY = os.environ.get("ANTHROPIC_API_KEY", "").strip()
+
+client = anthropic.Anthropic(api_key=ANTHROPIC_KEY)
 
 class ImagePayload(BaseModel):
     image: str
@@ -97,12 +99,16 @@ async def serve_hud():
 @app.post("/analyze")
 async def analyze_surroundings(payload: ImagePayload):
     try:
+        if not ANTHROPIC_KEY:
+            return {"error": "ANTHROPIC_API_KEY environment variable is not set on Render."}
+
         image_data = payload.image
         if "," in image_data:
             image_data = image_data.split(",")[1]
 
+        # Standard Anthropic model string
         message = client.messages.create(
-            model="claude-3-haiku",
+            model="claude-3-haiku-20240307",
             max_tokens=150,
             system=(
                 "You are J.A.R.V.I.S., an advanced AI chief of staff. "
