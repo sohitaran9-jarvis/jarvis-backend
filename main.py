@@ -17,10 +17,18 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# --- DIAGNOSTIC CHECK ON STARTUP ---
+ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "").strip()
 ELEVENLABS_API_KEY = os.environ.get("ELEVENLABS_API_KEY", "").strip()
-ANTHROPIC_KEY = os.environ.get("ANTHROPIC_API_KEY", "").strip()
 
-client = anthropic.Anthropic(api_key=ANTHROPIC_KEY)
+print("--- STARTUP DIAGNOSTIC ---")
+if ANTHROPIC_API_KEY:
+    print(f"ANTHROPIC_API_KEY loaded successfully. Starts with: {ANTHROPIC_API_KEY[:6]}...")
+else:
+    print("CRITICAL: ANTHROPIC_API_KEY is completely missing or empty in Render!")
+print("----------------------------")
+
+client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 
 class ImagePayload(BaseModel):
     image: str
@@ -99,14 +107,13 @@ async def serve_hud():
 @app.post("/analyze")
 async def analyze_surroundings(payload: ImagePayload):
     try:
-        if not ANTHROPIC_KEY:
-            return {"error": "ANTHROPIC_API_KEY environment variable is not set on Render."}
+        if not ANTHROPIC_API_KEY:
+            return {"error": "ANTHROPIC_API_KEY environment variable is missing on Render."}
 
         image_data = payload.image
         if "," in image_data:
             image_data = image_data.split(",")[1]
 
-        # Standard Anthropic model string
         message = client.messages.create(
             model="claude-3-haiku-20240307",
             max_tokens=150,
