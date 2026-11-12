@@ -1,5 +1,4 @@
 import os
-import json
 import requests
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -8,7 +7,7 @@ from pydantic import BaseModel
 from supabase import create_client, Client
 from groq import Groq
 
-app = FastAPI(title="J.A.R.V.I.S. CLOUD OS")
+app = FastAPI(title="J.A.R.V.I.S. CLOUD & TELEGRAM OS")
 
 app.add_middleware(
     CORSMiddleware,
@@ -21,6 +20,9 @@ app.add_middleware(
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "").strip()
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "").strip()
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY", "").strip()
+
+TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
+TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "").strip()
 
 groq_client = Groq(api_key=GROQ_API_KEY) if GROQ_API_KEY else None
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY) if (SUPABASE_URL and SUPABASE_KEY) else None
@@ -37,6 +39,20 @@ def get_second_brain() -> str:
     except Exception as e:
         return f"Memory sync warning: {str(e)}"
 
+def send_telegram(message_text: str):
+    if not (TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID):
+        return "Telegram queued (Add bot token and chat ID in Render)."
+    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+    payload = {
+        "chat_id": TELEGRAM_CHAT_ID,
+        "text": f"J.A.R.V.I.S. TELEMETRY:\n\n{message_text}"
+    }
+    try:
+        requests.post(url, json=payload)
+        return "Dispatched alert to your Telegram."
+    except Exception as e:
+        return f"Telegram error: {str(e)}"
+
 class Directive(BaseModel):
     text: str
 
@@ -44,12 +60,12 @@ class Directive(BaseModel):
 async def execute_directive(payload: Directive):
     brain_context = get_second_brain()
     if not groq_client:
-        return {"response": "Sir, please add your free GROQ_API_KEY in Render environment variables."}
+        return {"response": "Sir, please add your GROQ_API_KEY in Render."}
 
     system_prompt = (
         "You are J.A.R.V.I.S., Tony Stark's ultra-capable AI chief of staff and loyal friend. "
         "You manage bookings, compare Amazon prices, remember dead-center cinema seating preferences, "
-        "ask before applying CEA discount codes, and coordinate via WhatsApp. "
+        "and push alerts straight to Telegram. "
         "CRITICAL: Output plain spoken text only—no markdown, asterisks, bullet points, or emojis.\n\n"
         f"{brain_context}"
     )
@@ -63,7 +79,13 @@ async def execute_directive(payload: Directive):
             ],
             max_tokens=300
         )
-        return {"response": completion.choices[0].message.content}
+        reply = completion.choices[0].message.content
+
+        # Automatically trigger Telegram alert on checks, bookings, seats, or alerts
+        if any(w in payload.text.lower() for w in ["alert", "cinema", "seat", "amazon", "book", "notify", "telegram", "status"]):
+            send_telegram(reply)
+
+        return {"response": reply}
     except Exception as e:
         return {"response": f"Neural core error: {str(e)}"}
 
@@ -102,27 +124,27 @@ async def serve_hud():
 <body>
     <header>
         <h1>J.A.R.V.I.S. CLOUD OS</h1>
-        <div class="badge">CROSS-PLATFORM (£0.00)</div>
+        <div class="badge">TELEGRAM LINKED (£0.00)</div>
     </header>
     <section class="panel">
         <div class="panel-title">OPTICAL & TELEMETRY</div>
         <video id="cam" autoplay playsinline muted></video>
         <div style="font-size:0.8rem; color:#a5f3fc; margin-top:8px;">HOST: Render Cloud</div>
-        <div style="font-size:0.8rem; color:#a5f3fc; margin-top:4px;">MEMORY: Supabase Cloud</div>
+        <div style="font-size:0.8rem; color:#a5f3fc; margin-top:4px;">COMMS: Telegram Active</div>
     </section>
     <section class="panel center-stage">
         <div class="core" id="arc-core"></div>
         <div id="log">
-            <div class="msg-jarvis">J.A.R.V.I.S.: Cloud core online, Sir. Ready for deployment.</div>
+            <div class="msg-jarvis">J.A.R.V.I.S.: Telegram bridge online, Sir. Test an alert command below.</div>
         </div>
     </section>
     <section class="panel">
         <div class="panel-title">SYSTEM STATUS</div>
-        <div style="font-size:0.85rem; color:#ffaa00; line-height:1.5;">- Zero local files.<br>- Accessible on any OS.<br>- Browser speech voice active.</div>
+        <div style="font-size:0.85rem; color:#ffaa00; line-height:1.5;">- Cloud memory syncing.<br>- Telegram push enabled.<br>- Voice synthesis ready.</div>
     </section>
     <footer>
         <button class="btn" id="mic-btn">MIC: ON</button>
-        <input type="text" id="input" placeholder="Type command..." />
+        <input type="text" id="input" placeholder="Type command (e.g., 'Alert me about cinema seats')..." />
     </footer>
     <script>
         const cam = document.getElementById('cam');
@@ -162,4 +184,3 @@ async def serve_hud():
     </script>
 </body>
 </html>
-    """
