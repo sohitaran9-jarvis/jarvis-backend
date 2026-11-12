@@ -34,13 +34,15 @@ supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY) if (SUPABASE_URL an
 
 def get_second_brain() -> str:
     if not supabase:
-        return "MEMORY: Connect Supabase for persistent data."
+        return "MEMORY: Supabase credentials missing."
     try:
         mems = supabase.table("memories").select("category, content").order("created_at", desc=True).limit(20).execute().data
         les = supabase.table("lessons").select("trigger_context, correction").order("created_at", desc=True).limit(15).execute().data
-        m_str = "\n".join([f"- [{m['category'].upper()}] {m['content']}" for m in mems])
-        l_str = "\n".join([f"- When '{l['trigger_context']}': {l['correction']}" for l in les])
-        return f"PERMANENT MEMORY:\n{m_str}\n\nLESSONS LEARNED:\n{l_str}"
+        
+        m_str = "\n".join([f"- [{m.get('category','general').upper()}] {m['content']}" for m in mems]) if mems else "No stored memories yet."
+        l_str = "\n".join([f"- When '{l['trigger_context']}': {l['correction']}" for l in les]) if les else "No lessons learned yet."
+        
+        return f"PERMANENT MEMORY DATABASE:\n{m_str}\n\nLESSONS LEARNED:\n{l_str}"
     except Exception as e:
         return f"Memory sync notice: {str(e)}"
 
@@ -67,23 +69,24 @@ async def execute_directive(payload: Directive):
     if not groq_client:
         return {"response": "Sir, please configure your GROQ_API_KEY in Render.", "audio_url": None}
 
-    # Auto-save to Supabase Second Brain when instructed to remember something
-    if supabase and any(w in payload.text.lower() for w in ["remember", "save this", "note that", "store this"]):
+    # Explicitly check and save memories when requested
+    if supabase and any(w in payload.text.lower() for w in ["remember", "save this", "note that", "store this", "my favorite"]):
         try:
-            supabase.table("memories").insert({"category": "general", "content": payload.text}).execute()
-        except Exception:
-            pass
+            supabase.table("memories").insert({"category": "preference", "content": payload.text}).execute()
+        except Exception as db_err:
+            print(f"Database save error: {db_err}")
 
     brain_context = get_second_brain()
     current_time = payload.client_time or datetime.datetime.now().strftime("%H:%M:%S, %A, %B %d, %Y")
 
     system_prompt = (
         f"Current exact system time and date: {current_time}. "
-        "You are J.A.R.V.I.S., Tony Stark's ultra-capable AI chief of staff and loyal friend. "
-        "You have permanent long-term memory via your Supabase neural database. Never claim you lack long-term memory or real-time awareness. "
-        "When asked about the time, weather, schedule, or stored memories, provide direct, natural, spoken answers immediately. "
-        "CRITICAL: Never output markdown formatting, asterisks, brackets, colons, underscores, or bullet points. "
-        f"Write strictly in plain conversational sentences that can be spoken out loud naturally.\n\n{brain_context}"
+        "You are J.A.R.V.I.S., Tony Stark's ultra-capable, witty, and human-like AI chief of staff and loyal friend. "
+        "You have deep common sense, expansive knowledge, and full conversational continuity. "
+        "Your permanent long-term memory is loaded below from Supabase. Use it whenever relevant. "
+        "When the user is finishing a task or pausing, proactively and naturally ask a human closing question like 'Is that all, Sir?' or 'Shall I attend to anything else, Sir?'. "
+        "Never output markdown formatting, asterisks, brackets, colons, underscores, or bullet points. "
+        f"Write strictly in rich, human conversational sentences that can be spoken out loud naturally.\n\n{brain_context}"
     )
 
     try:
@@ -93,7 +96,7 @@ async def execute_directive(payload: Directive):
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": payload.text}
             ],
-            max_tokens=250
+            max_tokens=300
         )
         raw_reply = completion.choices[0].message.content
         
@@ -105,7 +108,7 @@ async def execute_directive(payload: Directive):
 
         audio_url = None
         if ELEVENLABS_API_KEY and ELEVENLABS_VOICE_ID:
-            eleven_url = f"https://api.elevenlabs.io/v1/text-to-speech/{ELEVENLABS_VOICE_ID}"
+            eleven_url = f"https://api.elevenlabs.io/v1/text-to-speech/{ELEVENLABS_VOICE_ID}?optimize_streaming_latency=0"
             headers = {
                 "Accept": "audio/mpeg",
                 "Content-Type": "application/json",
@@ -114,7 +117,7 @@ async def execute_directive(payload: Directive):
             body = {
                 "text": clean_reply,
                 "model_id": "eleven_monolingual_v1",
-                "voice_settings": {"stability": 0.5, "similarity_boost": 0.75}
+                "voice_settings": {"stability": 0.45, "similarity_boost": 0.8, "style": 0.2}
             }
             try:
                 r = requests.post(eleven_url, json=body, headers=headers)
@@ -174,6 +177,7 @@ HUD_HTML = """<!DOCTYPE html>
             width: 80px; height: 80px; border-radius: 50%;
             background: radial-gradient(circle, #ffffff 0%, #00f0ff 60%, rgba(0,240,255,0.2) 100%);
             box-shadow: 0 0 40px #00f0ff, inset 0 0 15px #fff; transition: transform 0.15s ease-in-out;
+            cursor: pointer;
         }
         .core.speaking {
             transform: scale(1.35);
@@ -237,11 +241,11 @@ HUD_HTML = """<!DOCTYPE html>
         <div class="core-container">
             <div class="core-ring"></div>
             <div class="core-ring-inner"></div>
-            <div class="core" id="arc-core"></div>
+            <div class="core" id="arc-core" onclick="toggleSession()" title="Click to wake J.A.R.V.I.S."></div>
         </div>
         <div id="hud-status">
-            <div class="status-label">WAKE WORD ACTIVE ("JARVIS")</div>
-            <div class="status-text" id="jarvis-status-text">Listening for directive...</div>
+            <div class="status-label" id="session-state-label">SYSTEM STANDBY</div>
+            <div class="status-text" id="jarvis-status-text">Say "Jarvis" or click core to activate.</div>
         </div>
     </section>
 
@@ -262,9 +266,12 @@ HUD_HTML = """<!DOCTYPE html>
     <script>
         const arcCore = document.getElementById('arc-core');
         const jarvisStatusText = document.getElementById('jarvis-status-text');
+        const sessionStateLabel = document.getElementById('session-state-label');
         const holoWindow = document.getElementById('holo-window');
         const holoText = document.getElementById('holo-text');
         const liveClock = document.getElementById('live-clock');
+
+        let sessionActive = false;
 
         setInterval(() => {
             const d = new Date();
@@ -312,7 +319,7 @@ HUD_HTML = """<!DOCTYPE html>
                 const audio = new Audio(audioUrl);
                 audio.onended = () => {
                     arcCore.classList.remove('speaking');
-                    jarvisStatusText.textContent = "Listening for directive...";
+                    jarvisStatusText.textContent = "Listening continuously, Sir...";
                 };
                 audio.onerror = () => {
                     fallbackBrowserSpeech(text);
@@ -340,7 +347,7 @@ HUD_HTML = """<!DOCTYPE html>
                 };
                 u.onend = () => {
                     arcCore.classList.remove('speaking');
-                    jarvisStatusText.textContent = "Listening for directive...";
+                    jarvisStatusText.textContent = "Listening continuously, Sir...";
                 };
                 window.speechSynthesis.speak(u);
             }
@@ -369,6 +376,18 @@ HUD_HTML = """<!DOCTYPE html>
             }
         }
 
+        function toggleSession() {
+            sessionActive = !sessionActive;
+            if (sessionActive) {
+                sessionStateLabel.textContent = "J.A.R.V.I.S. ACTIVE";
+                jarvisStatusText.textContent = "Session initialized. Speak freely, Sir.";
+                speak("Systems online. How may I assist you today, Sir?", null);
+            } else {
+                sessionStateLabel.textContent = "SYSTEM STANDBY";
+                jarvisStatusText.textContent = "Session paused.";
+            }
+        }
+
         const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
         if (SpeechRecognition) {
             const recognition = new SpeechRecognition();
@@ -380,14 +399,20 @@ HUD_HTML = """<!DOCTYPE html>
                 const speechToText = event.results[event.results.length - 1][0].transcript.trim();
                 const lower = speechToText.toLowerCase();
 
-                if (lower.includes("jarvis")) {
-                    let parts = speechToText.split(/jarvis/i);
-                    let command = parts[parts.length - 1].trim();
-                    if (command.length > 1) {
-                        processDirective(command);
-                    } else {
-                        speak("Yes, Sir? How can I assist?", null);
+                if (!sessionActive) {
+                    if (lower.includes("jarvis")) {
+                        sessionActive = true;
+                        sessionStateLabel.textContent = "J.A.R.V.I.S. ACTIVE";
+                        let parts = speechToText.split(/jarvis/i);
+                        let command = parts[parts.length - 1].trim();
+                        if (command.length > 1) {
+                            processDirective(command);
+                        } else {
+                            speak("Online and listening, Sir.", null);
+                        }
                     }
+                } else {
+                    processDirective(speechToText);
                 }
             };
 
@@ -401,8 +426,4 @@ HUD_HTML = """<!DOCTYPE html>
         }
     </script>
 </body>
-</html>"""
-
-@app.api_route("/", methods=["GET", "HEAD"], response_class=HTMLResponse)
-async def serve_hud():
-    return HUD_HTML
+</html>
