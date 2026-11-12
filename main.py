@@ -64,21 +64,21 @@ async def execute_directive(payload: Directive):
 
     system_prompt = (
         "You are J.A.R.V.I.S., Tony Stark's ultra-capable AI chief of staff and loyal friend. "
-        "You have total common sense and answer questions directly, naturally, and immediately. "
-        "When asked about weather, time, schedule, or status, provide precise, helpful information. "
+        "You respond with absolute common sense, extreme speed, and precision. "
+        "When asked about weather, time, schedule, or status, provide direct, concise, and helpful answers. "
         "CRITICAL: Output plain spoken text only—no markdown, asterisks, bullet points, or emojis.\n\n"
         f"{brain_context}"
     )
 
     try:
-        # Using the current high-performance Groq model endpoint
+        # Using Groq's ultra-fast instant model for zero latency
         completion = groq_client.chat.completions.create(
-            model="openai/gpt-oss-120b",
+            model="llama-3.1-8b-instant",
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": payload.text}
             ],
-            max_tokens=300
+            max_tokens=250
         )
         reply = completion.choices[0].message.content
 
@@ -207,8 +207,8 @@ HUD_HTML = """<!DOCTYPE html>
             <div class="core" id="arc-core"></div>
         </div>
         <div id="hud-status">
-            <div class="status-label">ACTIVE AUDIO FEED</div>
-            <div class="status-text" id="jarvis-status-text">Listening passively, Sir...</div>
+            <div class="status-label">WAKE WORD ACTIVE ("JARVIS")</div>
+            <div class="status-text" id="jarvis-status-text">Listening for directive...</div>
         </div>
     </section>
 
@@ -218,7 +218,7 @@ HUD_HTML = """<!DOCTYPE html>
         <div style="color:#7dd3fc; line-height:1.7;">
             <b>Global Intelligence:</b><br>
             - Quantum encryption verified.<br>
-            - Network latency: 12ms.<br>
+            - Network latency: 4ms.<br>
             <br>
             <b>Tracked Interests:</b><br>
             - Autonomous AI architectures.<br>
@@ -289,7 +289,7 @@ HUD_HTML = """<!DOCTYPE html>
                 };
                 u.onend = () => {
                     arcCore.classList.remove('speaking');
-                    jarvisStatusText.textContent = "Listening passively, Sir...";
+                    jarvisStatusText.textContent = "Listening for directive...";
                 };
                 window.speechSynthesis.speak(u);
             }
@@ -312,7 +312,7 @@ HUD_HTML = """<!DOCTYPE html>
             }
         }
 
-        // Always-On Continuous Passive Voice Recognition (Hands-Free)
+        // Always-On Wake Word Detection ("Jarvis")
         const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
         if (SpeechRecognition) {
             const recognition = new SpeechRecognition();
@@ -322,7 +322,20 @@ HUD_HTML = """<!DOCTYPE html>
 
             recognition.onresult = (event) => {
                 const speechToText = event.results[event.results.length - 1][0].transcript.trim();
-                processDirective(speechToText);
+                const lower = speechToText.toLowerCase();
+
+                // ONLY trigger if the speech contains or starts with "jarvis"
+                if (lower.includes("jarvis")) {
+                    // Extract whatever comes after "jarvis"
+                    let parts = speechToText.split(/jarvis/i);
+                    let command = parts[parts.length - 1].trim();
+                    if (command.length > 1) {
+                        processDirective(command);
+                    } else {
+                        speak("Yes, Sir? How can I assist?");
+                    }
+                }
+                // Otherwise, completely ignore it so you can talk to yourself or others freely!
             };
 
             recognition.onend = () => {
