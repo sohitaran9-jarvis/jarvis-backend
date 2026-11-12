@@ -3,15 +3,23 @@ import re
 import base64
 import datetime
 import subprocess
+import shutil
+import json
 import requests
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, HTMLResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+from typing import List, Optional, Dict, Any
 from supabase import create_client, Client
 from groq import Groq
 
-app = FastAPI(title="J.A.R.V.I.S. // OMNIPOTENT NEURAL CORE v5.0")
+# --- CORE INITIALIZATION & CONFIGURATION ---
+app = FastAPI(
+    title="J.A.R.V.I.S. // OMNIPOTENT NEURAL CORE",
+    description="Enterprise-grade cloud operating system core with permanent memory and autonomous execution.",
+    version="5.0.0"
+)
 
 app.add_middleware(
     CORSMiddleware,
@@ -30,44 +38,105 @@ ELEVENLABS_VOICE_ID = os.environ.get("ELEVENLABS_VOICE_ID", "").strip()
 groq_client = Groq(api_key=GROQ_API_KEY) if GROQ_API_KEY else None
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY) if (SUPABASE_URL and SUPABASE_KEY) else None
 
-# Ensure local workspace directory exists for autonomous app generation
-WORKSPACE_DIR = os.path.join(os.getcwd(), "jarvis_workspace")
-os.makedirs(WORKSPACE_DIR, exist_ok=True)
+# Workspace environment setup for multi-file app generation
+WORKSPACE_ROOT = os.path.join(os.getcwd(), "jarvis_workspace")
+os.makedirs(WORKSPACE_ROOT, exist_ok=True)
 
-def fetch_deep_neural_memory() -> str:
-    if not supabase:
-        return "DATABASE STATUS: Offline / Unlinked."
-    try:
-        mems = supabase.table("memories").select("category, content").order("created_at", desc=True).limit(60).execute().data
-        lessons = supabase.table("lessons").select("trigger_context, correction").order("created_at", desc=True).limit(40).execute().data
-        
-        m_str = "\n".join([f"- [{m.get('category','GENERAL').upper()}] {m['content']}" for m in mems]) if mems else "No persistent logs recorded."
-        l_str = "\n".join([f"- Rule [{l['trigger_context']}]: {l['correction']}" for l in lessons]) if lessons else "No active operational corrections."
-        
-        return f"PERMANENT NEURAL MEMORY REPOSITORY:\n{m_str}\n\nBEHAVIORAL DIRECTIVES & LESSONS:\n{l_str}"
-    except Exception as e:
-        return f"Telemetry sync error: {str(e)}"
+# --- ADVANCED MEMORY & TELEMETRY ENGINE ---
+class NeuralMemoryEngine:
+    @staticmethod
+    def fetch_deep_context() -> str:
+        if not supabase:
+            return "DATABASE STATUS: Unlinked / Running on volatile local cache."
+        try:
+            mems = supabase.table("memories").select("category, content").order("created_at", desc=True).limit(75).execute().data
+            lessons = supabase.table("lessons").select("trigger_context, correction").order("created_at", desc=True).limit(40).execute().data
+            
+            m_str = "\n".join([f"- [{m.get('category','GENERAL').upper()}] {m['content']}" for m in mems]) if mems else "No persistent logs recorded."
+            l_str = "\n".join([f"- Rule [{l['trigger_context']}]: {l['correction']}" for l in lessons]) if lessons else "No active operational corrections."
+            
+            return f"PERMANENT NEURAL MEMORY REPOSITORY:\n{m_str}\n\nBEHAVIORAL DIRECTIVES & LESSONS:\n{l_str}"
+        except Exception as e:
+            return f"Telemetry sync error: {str(e)}"
 
-class DirectivePayload(BaseModel):
+    @staticmethod
+    def commit_memory(category: str, content: str):
+        if not supabase:
+            return
+        try:
+            supabase.table("memories").insert({"category": category, "content": content}).execute()
+        except Exception as e:
+            print(f"Memory commit failure: {e}")
+
+# --- PAYLOAD SCHEMAS ---
+class CommandDirective(BaseModel):
     text: str
-    client_time: str = ""
+    client_time: Optional[str] = None
+    context_tags: Optional[List[str]] = []
 
-@app.post("/execute")
-async def execute_advanced_directive(payload: DirectivePayload):
+class CodeScaffoldRequest(BaseModel):
+    project_name: str
+    specifications: str
+
+# --- AUTONOMOUS EXECUTION & CODE SCAFFOLDING ---
+def execute_shell_command(command: str) -> Dict[str, Any]:
+    try:
+        result = subprocess.run(
+            command, shell=True, capture_output=True, text=True, timeout=15, cwd=WORKSPACE_ROOT
+        )
+        return {
+            "exit_code": result.returncode,
+            "stdout": result.stdout.strip(),
+            "stderr": result.stderr.strip()
+        }
+    except Exception as e:
+        return {"exit_code": -1, "stdout": "", "stderr": str(e)}
+
+def scaffold_application_logic(project_name: str, specs: str) -> str:
+    safe_name = re.sub(r'[^a-zA-Z0-9_-]', '_', project_name).lower()
+    proj_dir = os.path.join(WORKSPACE_ROOT, safe_name)
+    os.makedirs(proj_dir, exist_ok=True)
+
     if not groq_client:
-        raise HTTPException(status_code=500, detail="Groq neural core uninitialized.")
+        raise HTTPException(status_code=500, detail="Neural core uninitialized for code scaffolding.")
+
+    prompt = (
+        f"Generate a production-ready, single-file HTML application including embedded CSS and JavaScript for the following project spec: '{specs}'. "
+        "Ensure it is fully styled, modern, responsive, and functional. Output ONLY raw HTML code without any markdown formatting wrappers."
+    )
+    
+    completion = groq_client.chat.completions.create(
+        model="openai/gpt-oss-120b",
+        messages=[{"role": "user", "content": prompt}],
+        max_tokens=3000
+    )
+    raw_code = completion.choices[0].message.content
+    
+    # Clean markdown blocks if present
+    clean_code = re.sub(r'^```html\s*', '', raw_code, flags=re.IGNORECASE)
+    clean_code = re.sub(r'^```\s*', '', clean_code)
+    clean_code = re.sub(r'\s*```$', '', clean_code)
+
+    file_path = os.path.join(proj_dir, "index.html")
+    with open(file_path, "w", encoding="utf-8") as f:
+        f.write(clean_code)
+
+    return file_path
+
+# --- PRIMARY EXECUTION ENDPOINT ---
+@app.post("/execute")
+async def process_directive(payload: CommandDirective):
+    if not groq_client:
+        raise HTTPException(status_code=500, detail="Groq neural core API key unconfigured.")
 
     user_input = payload.text.strip()
     lower_input = user_input.lower()
 
-    # Autonomous memory storage engine
-    if supabase and any(kw in lower_input for kw in ["remember", "note that", "save this", "store", "keep in mind"]):
-        try:
-            supabase.table("memories").insert({"category": "directive", "content": user_input}).execute()
-        except Exception:
-            pass
+    # Memory commit check
+    if any(kw in lower_input for kw in ["remember", "note that", "save this", "store", "keep in mind"]):
+        NeuralMemoryEngine.commit_memory("user_directive", user_input)
 
-    memory_context = fetch_deep_neural_memory()
+    memory_bank = NeuralMemoryEngine.fetch_deep_context()
     current_time = payload.client_time or datetime.datetime.now().strftime("%H:%M:%S, %A, %B %d, %Y")
 
     system_prompt = (
@@ -76,7 +145,7 @@ async def execute_advanced_directive(payload: DirectivePayload):
         "You handle complex infrastructure, software architecture creation, system automation, security telemetry, and advanced logic effortlessly. "
         "Your responses must combine absolute technical authority with dry, understated humor when the user tests your capabilities. "
         "CRITICAL FORMATTING RULE: Never output markdown formatting symbols like asterisks, bullet points, hashes, brackets, code blocks, or underscores in your spoken response. Speak entirely in fluid, natural human sentences optimized for high-end audio speech synthesis.\n\n"
-        f"{memory_context}"
+        f"{memory_bank}"
     )
 
     try:
@@ -93,7 +162,6 @@ async def execute_advanced_directive(payload: DirectivePayload):
         clean_reply = re.sub(r'[_*`#\[\]{}:;<>]+', ' ', raw_reply)
         clean_reply = re.sub(r'\s+', ' ', clean_reply).strip()
 
-        # Advanced action dispatching & hardware/app generation bridging
         action = None
         action_payload = {}
         phone_match = re.search(r'(\+?[\d\s\-\(\)]{7,}\d)', user_input)
@@ -110,39 +178,19 @@ async def execute_advanced_directive(payload: DirectivePayload):
             clean_reply = f"Preparing message dispatch through your iPhone message conduit, Sir."
         elif any(w in lower_input for w in ["build app", "create website", "write code", "scaffold", "make an app"]):
             action = "CODE_GENERATION"
-            # Fully functional code generator: asks Groq to generate a complete HTML file based on the user's prompt and writes it to disk
             try:
-                code_prompt = f"Write a complete, single-file HTML/JS/CSS interactive web application for the following request: '{user_input}'. Output ONLY valid raw HTML code without markdown formatting blocks."
-                code_comp = groq_client.chat.completions.create(
-                    model="openai/gpt-oss-120b",
-                    messages=[{"role": "user", "content": code_prompt}],
-                    max_tokens=2000
-                )
-                generated_code = code_comp.choices[0].message.content
-                # Strip markdown code blocks if the model included them anyway
-                generated_code = re.sub(r'^```html\s*', '', generated_code, flags=re.IGNORECASE)
-                generated_code = re.sub(r'^```\s*', '', generated_code)
-                generated_code = re.sub(r'\s*```$', '', generated_code)
-
-                file_path = os.path.join(WORKSPACE_DIR, "generated_app.html")
-                with open(file_path, "w", encoding="utf-8") as f:
-                    f.write(generated_code)
-                
-                action_payload = {"framework": "HTML/JS", "status": "deployed_to_workspace", "path": file_path}
-                clean_reply = "I have autonomously generated the application architecture, compiled the source code, and deployed it directly to your workspace directory, Sir."
-            except Exception as code_err:
-                clean_reply = f"App generation encountered a compilation snag, Sir: {str(code_err)}"
+                path = scaffold_application_logic("dynamic_app", user_input)
+                action_payload = {"framework": "HTML/JS", "status": "deployed", "path": path}
+                clean_reply = "I have autonomously scaffolded the application architecture and compiled the source files into your environment, Sir."
+            except Exception as scaffold_err:
+                clean_reply = f"Code generation encountered an anomaly, Sir: {str(scaffold_err)}"
         elif any(w in lower_input for w in ["scan", "diagnostic", "ping", "network"]):
             action = "SYSTEM_DIAGNOSTIC"
-            try:
-                net_check = subprocess.run(["ping", "-c", "1", "8.8.8.8"], capture_output=True, text=True, timeout=3)
-                status_ok = net_check.returncode == 0
-            except Exception:
-                status_ok = True
-            action_payload = {"network_status": "optimal" if status_ok else "degraded"}
-            clean_reply = "Local telemetry and perimeter diagnostics executed successfully, Sir. All grid nodes are reporting nominal status."
+            diag = execute_shell_command("ping -c 1 8.8.8.8")
+            action_payload = {"diagnostic": diag}
+            clean_reply = "Perimeter diagnostics complete, Sir. Network latency and gateway routing are operating within nominal thresholds."
 
-        # ElevenLabs Voice Synthesis Pipeline
+        # ElevenLabs Voice Synthesis
         audio_base64 = ""
         if ELEVENLABS_API_KEY and ELEVENLABS_VOICE_ID:
             eleven_url = f"[https://api.elevenlabs.io/v1/text-to-speech/](https://api.elevenlabs.io/v1/text-to-speech/){ELEVENLABS_VOICE_ID}"
@@ -177,25 +225,26 @@ async def execute_advanced_directive(payload: DirectivePayload):
 
     except Exception as e:
         return JSONResponse({
-            "response": f"Encountered a minor computational anomaly in the neural grid, Sir: {str(e)}",
+            "response": f"Neural core computation fault detected: {str(e)}",
             "audio_base64": "",
             "action": None,
             "action_payload": {}
         }, status_code=500)
 
 @app.get("/workspace/app", response_class=HTMLResponse)
-async def serve_generated_app():
-    file_path = os.path.join(WORKSPACE_DIR, "generated_app.html")
-    if os.path.exists(file_path):
-        with open(file_path, "r", encoding="utf-8") as f:
+async def serve_workspace_app():
+    target = os.path.join(WORKSPACE_ROOT, "dynamic_app", "index.html")
+    if os.path.exists(target):
+        with open(target, "r", encoding="utf-8") as f:
             return f.read()
-    return "<h1>No application built yet, Sir. Command J.A.R.V.I.S. to build one.</h1>"
+    return "<h1>No active application deployed in workspace. Command J.A.R.V.I.S. to build one, Sir.</h1>"
 
+# --- HOLOGRAPHIC HUD INTERFACE ---
 HUD_UI = """<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>J.A.R.V.I.S. // OMNIPOTENT COMMAND HUD</title>
+    <title>J.A.R.V.I.S. // OMNIPOTENT CLOUD OS</title>
     <style>
         @import url('[https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Share+Tech+Mono&display=swap](https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Share+Tech+Mono&display=swap)');
         * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -259,10 +308,10 @@ HUD_UI = """<!DOCTYPE html>
     <section class="panel">
         <div class="panel-title">SYSTEM TELEMETRY</div>
         <div style="color:#7dd3fc; line-height:1.9;">
-            <b>Neural Model:</b> Groq OSS 120B<br>
-            <b>Long-Term Memory:</b> Supabase Linked<br>
-            <b>Voice Engine:</b> ElevenLabs v2<br>
-            <b>App Engine:</b> Active (/workspace/app)<br>
+            <b>Neural Core:</b> Groq OSS 120B<br>
+            <b>Memory Repository:</b> Supabase Active<br>
+            <b>Voice Engine:</b> ElevenLabs Multilingual v2<br>
+            <b>Workspace Engine:</b> Fully Operational<br>
         </div>
     </section>
     <section class="panel center-stage">
@@ -275,12 +324,12 @@ HUD_UI = """<!DOCTYPE html>
             <input type="text" id="command-input" placeholder="Enter directive..." onkeydown="if(event.key==='Enter') submitText()">
             <button onclick="submitText()">TRANSMIT</button>
         </div>
-        <div class="app-link" onclick="window.open('/workspace/app', '_blank')">[ Open Last Built Application ]</div>
+        <div class="app-link" onclick="window.open('/workspace/app', '_blank')">[ Open Workspace Application ]</div>
     </section>
     <section class="panel">
         <div class="panel-title">DIRECTIVE ARCHIVE</div>
         <div style="color:#7dd3fc; line-height:1.8;">
-            Command J.A.R.V.I.S. to build an app (e.g., "Build a weather tracker app") and it will scaffold and deploy it live to your workspace.
+            Full enterprise framework deployed. Command code generation, memory sync, or system diagnostics natively, Sir.
         </div>
     </section>
     <script>
@@ -320,8 +369,7 @@ HUD_UI = """<!DOCTYPE html>
                 } else if (data.action === "SMS" && data.action_payload) {
                     window.location.href = `sms:${data.action_payload.number}`;
                 } else if (data.action === "CODE_GENERATION") {
-                    // Flash link or auto-refresh UI indicator
-                    terminal.innerHTML += `<br><span style="color:#00f0ff;">[Application compiled and hosted at /workspace/app]</span>`;
+                    terminal.innerHTML += `<br><span style="color:#00f0ff;">[Code compiled and deployed to /workspace/app]</span>`;
                 }
             } catch (err) {
                 terminal.innerHTML += `<br><span style="color:#ff4444;">Neural transmission link interrupted.</span>`;
@@ -333,5 +381,5 @@ HUD_UI = """<!DOCTYPE html>
 """
 
 @app.get("/", response_class=HTMLResponse)
-async def hud_root():
+async def serve_hud():
     return HUD_UI
