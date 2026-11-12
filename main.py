@@ -3,14 +3,14 @@ import re
 import base64
 import datetime
 import requests
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel
 from supabase import create_client, Client
 from groq import Groq
 
-app = FastAPI(title="J.A.R.V.I.S. CLOUD OS")
+app = FastAPI(title="J.A.R.V.I.S. CLOUD OS // OMNI-CHANNEL BRIDGE")
 
 app.add_middleware(
     CORSMiddleware,
@@ -26,39 +26,22 @@ SUPABASE_KEY = os.environ.get("SUPABASE_KEY", "").strip()
 ELEVENLABS_API_KEY = os.environ.get("ELEVENLABS_API_KEY", "").strip()
 ELEVENLABS_VOICE_ID = os.environ.get("ELEVENLABS_VOICE_ID", "").strip()
 
-TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
-TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "").strip()
-
 groq_client = Groq(api_key=GROQ_API_KEY) if GROQ_API_KEY else None
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY) if (SUPABASE_URL and SUPABASE_KEY) else None
 
 def get_second_brain() -> str:
     if not supabase:
-        return "MEMORY: Supabase credentials missing."
+        return "MEMORY ERROR: Supabase database not connected."
     try:
-        mems = supabase.table("memories").select("category, content").order("created_at", desc=True).limit(25).execute().data
-        les = supabase.table("lessons").select("trigger_context, correction").order("created_at", desc=True).limit(15).execute().data
+        mems = supabase.table("memories").select("category, content").order("created_at", desc=True).limit(30).execute().data
+        les = supabase.table("lessons").select("trigger_context, correction").order("created_at", desc=True).limit(20).execute().data
         
-        m_str = "\n".join([f"- [{m.get('category','general').upper()}] {m['content']}" for m in mems]) if mems else "No stored memories yet."
-        l_str = "\n".join([f"- When '{l['trigger_context']}': {l['correction']}" for l in les]) if les else "No lessons learned yet."
+        m_str = "\n".join([f"- [{m.get('category','GENERAL').upper()}] {m['content']}" for m in mems]) if mems else "No stored memories found."
+        l_str = "\n".join([f"- When '{l['trigger_context']}': {l['correction']}" for l in les]) if les else "No behavioral lessons recorded."
         
-        return f"PERMANENT MEMORY DATABASE:\n{m_str}\n\nLESSONS LEARNED:\n{l_str}"
+        return f"PERMANENT NEURAL MEMORY DATABASE:\n{m_str}\n\nLESSONS LEARNED:\n{l_str}"
     except Exception as e:
-        return f"Memory sync notice: {str(e)}"
-
-def send_telegram(message_text: str):
-    if not (TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID):
-        return "Telegram queued."
-    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-    payload = {
-        "chat_id": TELEGRAM_CHAT_ID,
-        "text": f"J.A.R.V.I.S. TELEMETRY:\n\n{message_text}"
-    }
-    try:
-        requests.post(url, json=payload)
-        return "Dispatched to Telegram."
-    except Exception as e:
-        return f"Telegram error: {str(e)}"
+        return f"Database query error: {str(e)}"
 
 class Directive(BaseModel):
     text: str
@@ -67,25 +50,31 @@ class Directive(BaseModel):
 @app.post("/execute")
 async def execute_directive(payload: Directive):
     if not groq_client:
-        return {"response": "Sir, please configure your GROQ_API_KEY in Render.", "audio_url": None, "action": None}
+        raise HTTPException(status_code=500, detail="Groq neural core API key unconfigured.")
 
-    if supabase and any(w in payload.text.lower() for w in ["remember", "save this", "note that", "store this", "my favorite"]):
+    text_input = payload.text.strip()
+    lower_text = text_input.lower()
+
+    # Permanent Memory Direct Write Engine
+    if supabase and any(kw in lower_text for kw in ["remember", "save this", "store this", "my favorite", "note that", "keep in mind"]):
         try:
-            supabase.table("memories").insert({"category": "preference", "content": payload.text}).execute()
+            supabase.table("memories").insert({
+                "category": "user_preference", 
+                "content": text_input
+            }).execute()
         except Exception as db_err:
-            print(f"Database save error: {db_err}")
+            print(f"Supabase write failure: {db_err}")
 
     brain_context = get_second_brain()
     current_time = payload.client_time or datetime.datetime.now().strftime("%H:%M:%S, %A, %B %d, %Y")
 
     system_prompt = (
         f"Current exact system time and date: {current_time}. "
-        "You are J.A.R.V.I.S., Tony Stark's ultra-capable, witty, and human-like AI chief of staff and loyal friend. "
-        "You have absolute real-time awareness and permanent long-term memory via Supabase. "
-        "When asked to place a call or dial a number, confirm you are initiating the secure telecom bridge. "
-        "Speak naturally, fluidly, and dynamically like a human companion. "
-        "Never output markdown formatting, asterisks, brackets, colons, underscores, or bullet points. "
-        f"Write strictly in rich, human conversational sentences that can be spoken out loud naturally.\n\n{brain_context}"
+        "You are J.A.R.V.I.S., Tony Stark's ultra-capable, witty, and loyal AI chief of staff. "
+        "You possess permanent long-term memory loaded below from Supabase. Use it instantly when asked about past details. "
+        "When the user commands you to place a phone call, send a text message, or interface with their iPhone, confirm the command with absolute authority and readiness. "
+        "CRITICAL: Never output markdown formatting, asterisks, brackets, colons, underscores, or bullet points. "
+        f"Write strictly in rich, human conversational sentences optimized for audio speech generation.\n\n{brain_context}"
     )
 
     try:
@@ -93,7 +82,7 @@ async def execute_directive(payload: Directive):
             model="openai/gpt-oss-120b",
             messages=[
                 {"role": "system", "content": system_prompt},
-                {"role": "user", "content": payload.text}
+                {"role": "user", "content": text_input}
             ],
             max_tokens=300
         )
@@ -102,16 +91,23 @@ async def execute_directive(payload: Directive):
         clean_reply = re.sub(r'[_*`#\[\]{}:;<>]+', ' ', raw_reply)
         clean_reply = re.sub(r'\s+', ' ', clean_reply).strip()
 
+        # Telecommunication & iOS Integration Flag Detection
         action = None
-        phone_match = re.search(r'(\+?[\d\s\-\(\)]{7,}\d)', payload.text)
-        if any(w in payload.text.lower() for w in ["call", "dial", "phone"]) and phone_match:
+        action_payload = {}
+        phone_match = re.search(r'(\+?[\d\s\-\(\)]{7,}\d)', text_input)
+
+        if any(w in lower_text for w in ["call", "dial", "phone"]) and phone_match:
             digits = re.sub(r'\D', '', phone_match.group(1))
-            action = f"tel:{digits}"
-            clean_reply = f"Initiating secure telecom bridge to {phone_match.group(1)}, Sir. Click the secure channel popup to connect."
+            action = "CALL"
+            action_payload = {"type": "call", "number": digits}
+            clean_reply = f"Initiating secure cellular relay to {phone_match.group(1)}, Sir."
+        elif any(w in lower_text for w in ["text", "message", "sms"]) and phone_match:
+            digits = re.sub(r'\D', '', phone_match.group(1))
+            action = "SMS"
+            action_payload = {"type": "sms", "number": digits, "message": text_input}
+            clean_reply = f"Preparing message dispatch through your iPhone messages conduit, Sir."
 
-        if any(w in payload.text.lower() for w in ["alert", "cinema", "seat", "amazon", "book", "notify", "telegram", "status", "urgent"]):
-            send_telegram(clean_reply)
-
+        # High-Fidelity ElevenLabs Voice Stream Generation
         audio_url = None
         if ELEVENLABS_API_KEY and ELEVENLABS_VOICE_ID:
             eleven_url = f"https://api.elevenlabs.io/v1/text-to-speech/{ELEVENLABS_VOICE_ID}"
@@ -123,26 +119,44 @@ async def execute_directive(payload: Directive):
             body = {
                 "text": clean_reply,
                 "model_id": "eleven_multilingual_v2",
-                "voice_settings": {"stability": 0.4, "similarity_boost": 0.85, "style": 0.25}
+                "voice_settings": {
+                    "stability": 0.45,
+                    "similarity_boost": 0.85,
+                    "style": 0.3,
+                    "use_speaker_boost": True
+                }
             }
             try:
-                r = requests.post(eleven_url, json=body, headers=headers)
+                r = requests.post(eleven_url, json=body, headers=headers, timeout=10)
                 if r.status_code == 200:
                     b64_audio = base64.b64encode(r.content).decode("utf-8")
                     audio_url = f"data:audio/mpeg;base64,{b64_audio}"
-            except Exception:
-                pass
+                else:
+                    print(f"ElevenLabs API Error [{r.status_code}]: {r.text}")
+            except Exception as el_err:
+                print(f"ElevenLabs connection exception: {el_err}")
 
-        return {"response": clean_reply, "audio_url": audio_url, "action": action}
+        return JSONResponse({
+            "response": clean_reply,
+            "audio_url": audio_url,
+            "action": action,
+            "action_payload": action_payload
+        })
+
     except Exception as e:
-        return {"response": f"Neural core error {str(e)}", "audio_url": None, "action": None}
+        return JSONResponse({
+            "response": f"Neural core transmission fault: {str(e)}",
+            "audio_url": None,
+            "action": None,
+            "action_payload": {}
+        }, status_code=500)
 
 HUD_HTML = """<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>J.A.R.V.I.S. - HOLOGRAPHIC HUD</title>
+    <title>J.A.R.V.I.S. - HOLOGRAPHIC CLOUD OS</title>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Share+Tech+Mono&display=swap');
         * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -203,7 +217,7 @@ HUD_HTML = """<!DOCTYPE html>
 
         #holo-window {
             position: absolute; top: 15%; left: 50%; transform: translateX(-50%) scale(0.9);
-            width: 420px; background: rgba(1,15,30,0.95); border: 2px solid #00f0ff;
+            width: 440px; background: rgba(1,15,30,0.95); border: 2px solid #00f0ff;
             box-shadow: 0 0 30px rgba(0,240,255,0.5), inset 0 0 15px rgba(0,240,255,0.2);
             padding: 16px; z-index: 100; display: none; opacity: 0; transition: all 0.3s ease;
         }
@@ -221,7 +235,7 @@ HUD_HTML = """<!DOCTYPE html>
 
     <div id="holo-window">
         <div class="holo-header">
-            <span>VISUAL TELEMETRY ANALYSIS</span>
+            <span>SECURE TELECOM COMMAND</span>
             <span class="holo-close" onclick="closeHolo()">[X]</span>
         </div>
         <div class="holo-content" id="holo-text">
@@ -239,7 +253,7 @@ HUD_HTML = """<!DOCTYPE html>
             - 14:00 Tactical Briefing<br>
             - 18:30 Core Optimization<br>
             <br>
-            <span style="color:#ffaa00;"><b>Urgent Priorities:</b><br>- Telemetry Link: Active<br>- Neural Core: Stable</span>
+            <span style="color:#ffaa00;"><b>Urgent Priorities:</b><br>- Supabase Memory: Active<br>- iOS Bridge: Ready</span>
         </div>
     </section>
 
@@ -284,51 +298,35 @@ HUD_HTML = """<!DOCTYPE html>
             liveClock.textContent = d.toLocaleTimeString();
         }, 1000);
 
-        if (navigator.geolocation) {
-            navigator.geolocation.getCurrentPosition(async (pos) => {
-                try {
-                    const lat = pos.coords.latitude;
-                    const lon = pos.coords.longitude;
-                    const res = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current_weather=true`);
-                    const data = await res.json();
-                    if (data && data.current_weather) {
-                        const temp = data.current_weather.temperature;
-                        document.getElementById('weather-widget').innerHTML = `
-                            <b>Atmospheric Grid:</b> Local Sector<br>
-                            <b>Temperature:</b> ${temp}°C<br>
-                            <br>
-                            <b>Upcoming Calendar:</b><br>
-                            - 14:00 Tactical Briefing<br>
-                            - 18:30 Core Optimization<br>
-                            <br>
-                            <span style="color:#ffaa00;"><b>Urgent Priorities:</b><br>- Telemetry Link: Active<br>- Voice Interface: Online</span>
-                        `;
-                    }
-                } catch(e) {}
-            });
-        }
-
         function closeHolo() {
             holoWindow.classList.remove('active');
         }
 
-        function triggerHologram(content) {
-            holoText.innerHTML = "Sir, analyzing visual telemetry:<br><br><b>" + content + "</b>";
+        function triggerHologram(content, actionPayload) {
+            if (actionPayload && actionPayload.type === 'call') {
+                holoText.innerHTML = `iOS Cellular Bridge Ready:<br><br><a href="tel:${actionPayload.number}" style="color: #00f0ff; font-size: 1.2rem; text-decoration: underline;" target="_blank">[ EXECUTE PHONE CALL TO ${actionPayload.number} ]</a>`;
+            } else if (actionPayload && actionPayload.type === 'sms') {
+                holoText.innerHTML = `iOS Messages Bridge Ready:<br><br><a href="sms:${actionPayload.number}&body=${encodeURIComponent(actionPayload.message)}" style="color: #00f0ff; font-size: 1.2rem; text-decoration: underline;" target="_blank">[ OPEN MESSAGES APP ]</a>`;
+            } else {
+                holoText.innerHTML = "Sir, analyzing visual telemetry:<br><br><b>" + content + "</b>";
+            }
             holoWindow.classList.add('active');
         }
 
-        function speak(text, audioUrl, actionUrl) {
+        function speak(text, audioUrl, actionPayload) {
             jarvisStatusText.textContent = text;
             arcCore.classList.add('speaking');
 
-            if (actionUrl) {
-                holoText.innerHTML = `Secure Telecom Link Ready:<br><br><a href="${actionUrl}" style="color: #00f0ff; font-size: 1.2rem; text-decoration: underline;" target="_blank">[ CLICK TO DIAL / CALL ]</a>`;
-                holoWindow.classList.add('active');
+            if (actionPayload) {
+                triggerHologram(text, actionPayload);
             }
 
             const handleEnd = () => {
                 arcCore.classList.remove('speaking');
                 jarvisStatusText.textContent = "Listening continuously, Sir...";
+                if (actionPayload && actionPayload.type === 'call') {
+                    window.location.href = `tel:${actionPayload.number}`;
+                }
             };
 
             if (audioUrl) {
@@ -364,11 +362,6 @@ HUD_HTML = """<!DOCTYPE html>
         async function processDirective(text) {
             if (!text.trim()) return;
             jarvisStatusText.textContent = `Processing: "${text}"`;
-
-            if (text.toLowerCase().includes("look at this")) {
-                triggerHologram("Target optical feed captured. All parameters verified against security protocols.");
-            }
-
             const clientTime = new Date().toLocaleString();
 
             try {
@@ -378,7 +371,7 @@ HUD_HTML = """<!DOCTYPE html>
                     body: JSON.stringify({ text, client_time: clientTime }) 
                 });
                 const data = await res.json();
-                speak(data.response, data.audio_url, data.action);
+                speak(data.response, data.audio_url, data.action_payload);
             } catch (err) {
                 speak("Transmission error detected, Sir.", null, null);
             }
