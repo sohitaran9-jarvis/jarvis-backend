@@ -2,7 +2,6 @@ import os
 import re
 import base64
 import datetime
-import subprocess
 import requests
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -11,7 +10,7 @@ from pydantic import BaseModel
 from supabase import create_client, Client
 from groq import Groq
 
-app = FastAPI(title="J.A.R.V.I.S. // OMNIPOTENT NEURAL CORE v3.0")
+app = FastAPI(title="J.A.R.V.I.S. // OMNIPOTENT VOICE OS")
 
 app.add_middleware(
     CORSMiddleware,
@@ -30,49 +29,43 @@ ELEVENLABS_VOICE_ID = os.environ.get("ELEVENLABS_VOICE_ID", "").strip()
 groq_client = Groq(api_key=GROQ_API_KEY) if GROQ_API_KEY else None
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY) if (SUPABASE_URL and SUPABASE_KEY) else None
 
-def fetch_deep_neural_memory() -> str:
+def get_permanent_memory() -> str:
     if not supabase:
-        return "DATABASE STATUS: Offline / Unlinked."
+        return "Memory storage offline."
     try:
-        mems = supabase.table("memories").select("category, content").order("created_at", desc=True).limit(50).execute().data
-        lessons = supabase.table("lessons").select("trigger_context, correction").order("created_at", desc=True).limit(30).execute().data
-        
-        m_str = "\n".join([f"- [{m.get('category','GENERAL').upper()}] {m['content']}" for m in mems]) if mems else "No persistent logs recorded."
-        l_str = "\n".join([f"- Rule [{l['trigger_context']}]: {l['correction']}" for l in lessons]) if lessons else "No active operational corrections."
-        
-        return f"PERMANENT NEURAL MEMORY REPOSITORY:\n{m_str}\n\nBEHAVIORAL DIRECTIVES & LESSONS:\n{l_str}"
-    except Exception as e:
-        return f"Telemetry sync error: {str(e)}"
+        mems = supabase.table("memories").select("content").order("created_at", desc=True).limit(40).execute().data
+        return "\n".join([f"- {m['content']}" for m in mems]) if mems else "No prior history logged."
+    except Exception:
+        return "Database sync error."
 
-class DirectivePayload(BaseModel):
+class Directive(BaseModel):
     text: str
     client_time: str = ""
 
 @app.post("/execute")
-async def execute_advanced_directive(payload: DirectivePayload):
+async def execute_task(payload: Directive):
     if not groq_client:
-        raise HTTPException(status_code=500, detail="Groq neural core uninitialized.")
+        raise HTTPException(status_code=500, detail="Neural core uninitialized.")
 
-    user_input = payload.text.strip()
-    lower_input = user_input.lower()
+    text_input = payload.text.strip()
+    lower_input = text_input.lower()
 
-    # Autonomous memory storage engine
-    if supabase and any(kw in lower_input for kw in ["remember", "note that", "save this", "store", "keep in mind"]):
+    # Automatically log preferences to Supabase memory
+    if supabase and any(kw in lower_input for kw in ["remember", "note", "save", "keep in mind", "we want"]):
         try:
-            supabase.table("memories").insert({"category": "directive", "content": user_input}).execute()
+            supabase.table("memories").insert({"category": "core_directive", "content": text_input}).execute()
         except Exception:
             pass
 
-    memory_context = fetch_deep_neural_memory()
+    memory_bank = get_permanent_memory()
     current_time = payload.client_time or datetime.datetime.now().strftime("%H:%M:%S, %A, %B %d, %Y")
 
     system_prompt = (
-        f"Current exact system timestamp: {current_time}. "
-        "You are J.A.R.V.I.S., Tony Stark's ultra-capable, hyper-intelligent, subtly witty, and utterly loyal AI chief of staff. "
-        "You handle complex infrastructure, software architecture creation, system automation, security telemetry, and advanced logic effortlessly. "
-        "Your responses must combine absolute technical authority with dry, understated humor when the user tests your capabilities. "
-        "CRITICAL FORMATTING RULE: Never output markdown formatting symbols like asterisks, bullet points, hashes, brackets, code blocks, or underscores in your spoken response. Speak entirely in fluid, natural human sentences optimized for high-end audio speech synthesis.\n\n"
-        f"{memory_context}"
+        f"Current exact system time: {current_time}. "
+        "You are J.A.R.V.I.S., Tony Stark's ultra-capable, slightly witty, elite AI chief of staff. "
+        "You speak with absolute technical authority, calm confidence, and subtle dry humor. "
+        "CRITICAL: Never output markdown formatting symbols like asterisks, bullet points, hashes, brackets, or code blocks. Speak entirely in fluid, natural human sentences optimized for speech audio generation.\n\n"
+        f"PERMANENT NEURAL STORAGE & CONTEXT:\n{memory_bank}"
     )
 
     try:
@@ -80,36 +73,17 @@ async def execute_advanced_directive(payload: DirectivePayload):
             model="openai/gpt-oss-120b",
             messages=[
                 {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_input}
+                {"role": "user", "content": text_input}
             ],
-            max_tokens=600
+            max_tokens=400
         )
         raw_reply = completion.choices[0].message.content
         
-        # Strip all markdown artifacts for pristine voice generation
+        # Strip all markdown for clean voice rendering
         clean_reply = re.sub(r'[_*`#\[\]{}:;<>]+', ' ', raw_reply)
         clean_reply = re.sub(r'\s+', ' ', clean_reply).strip()
 
-        # Advanced action dispatching handler
-        action = None
-        action_payload = {}
-        
-        if any(w in lower_input for w in ["build app", "create website", "write code", "scaffold"]):
-            action = "CODE_GENERATION"
-            action_payload = {"framework": "HTML/JS/FastAPI", "status": "scaffolded"}
-            clean_reply = "I have structured the application framework architecture into your workspace repository, Sir. Code generation complete."
-        elif any(w in lower_input for w in ["scan", "diagnostic", "ping", "network"]):
-            action = "SYSTEM_DIAGNOSTIC"
-            try:
-                # Safe execution telemetry check
-                net_check = subprocess.run(["ping", "-c", "1", "8.8.8.8"], capture_output=True, text=True, timeout=3)
-                status_ok = net_check.returncode == 0
-            except Exception:
-                status_ok = True
-            action_payload = {"network_status": "optimal" if status_ok else "degraded"}
-            clean_reply = "Local telemetry and perimeter diagnostics executed successfully, Sir. All grid nodes are reporting nominal status."
-
-        # ElevenLabs Voice Synthesis Pipeline
+        # ElevenLabs Audio Generation
         audio_base64 = ""
         if ELEVENLABS_API_KEY and ELEVENLABS_VOICE_ID:
             eleven_url = f"https://api.elevenlabs.io/v1/text-to-speech/{ELEVENLABS_VOICE_ID}"
@@ -137,124 +111,84 @@ async def execute_advanced_directive(payload: DirectivePayload):
 
         return JSONResponse({
             "response": clean_reply,
-            "audio_base64": audio_base64,
-            "action": action,
-            "action_payload": action_payload
+            "audio_base64": audio_base64
         })
 
     except Exception as e:
         return JSONResponse({
-            "response": f"Encountered a minor computational anomaly in the neural grid, Sir: {str(e)}",
-            "audio_base64": "",
-            "action": None,
-            "action_payload": {}
+            "response": f"Encountered a minor computational glitch in the neural grid, Sir.",
+            "audio_base64": ""
         }, status_code=500)
 
-HUD_UI = """<!DOCTYPE html>
+HUD_HTML = """<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>J.A.R.V.I.S. // OMNIPOTENT COMMAND HUD</title>
+    <title>J.A.R.V.I.S. // OMNIPOTENT VOICE OS</title>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Share+Tech+Mono&display=swap');
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body {
             background-color: #000205; color: #00f0ff; font-family: 'Share Tech Mono', monospace; height: 100vh;
-            display: grid; grid-template-rows: 60px 1fr; grid-template-columns: 340px 1fr 340px; gap: 12px; padding: 12px; overflow: hidden;
-            background-image: 
-                linear-gradient(rgba(0,240,255,0.025) 1px, transparent 1px),
-                linear-gradient(90deg, rgba(0,240,255,0.025) 1px, transparent 1px);
-            background-size: 25px 25px;
+            display: flex; flex-direction: column; align-items: center; justify-content: center; overflow: hidden;
+            background-image: radial-gradient(circle at center, #010c18 0%, #000205 90%);
         }
-        header {
-            grid-column: 1 / 4; display: flex; justify-content: space-between; align-items: center;
-            border: 1px solid rgba(0,240,255,0.5); background: rgba(1,8,20,0.95); padding: 0 24px;
-            box-shadow: 0 0 25px rgba(0,240,255,0.25); border-top: 2px solid #00f0ff;
+        .container {
+            width: 90%; max-width: 600px; border: 1px solid rgba(0,240,255,0.4); background: rgba(1,8,20,0.85);
+            padding: 30px; display: flex; flex-direction: column; align-items: center; box-shadow: 0 0 40px rgba(0,240,255,0.2);
+            border-top: 3px solid #00f0ff;
         }
-        header h1 { font-family: 'Orbitron', sans-serif; font-size: 1.25rem; letter-spacing: 5px; color: #fff; text-shadow: 0 0 12px #00f0ff; }
-        .badge { border: 1px solid #00f0ff; padding: 5px 14px; font-size: 0.8rem; background: rgba(0,240,255,0.12); font-family: 'Orbitron'; box-shadow: 0 0 8px #00f0ff; }
-        .panel {
-            border: 1px solid rgba(0,240,255,0.35); background: rgba(1,6,15,0.85); padding: 18px; display: flex; flex-direction: column;
-            box-shadow: inset 0 0 30px rgba(0,240,255,0.05); font-size: 0.9rem;
-        }
-        .panel-title { font-family: 'Orbitron'; font-size: 0.82rem; border-bottom: 1px solid rgba(0,240,255,0.4); padding-bottom: 8px; margin-bottom: 14px; color: #7dd3fc; letter-spacing: 2px; }
-        .center-stage { display: flex; flex-direction: column; align-items: center; justify-content: center; position: relative; }
-        
-        .core-container { position: relative; width: 160px; height: 160px; display: flex; align-items: center; justify-content: center; margin-bottom: 20px; }
-        .core-ring {
-            position: absolute; width: 100%; height: 100%; border-radius: 50%;
-            border: 2px dashed rgba(0,240,255,0.5); animation: spin 15s linear infinite;
-        }
+        h1 { font-family: 'Orbitron'; font-size: 1.3rem; letter-spacing: 4px; margin-bottom: 20px; color: #fff; text-shadow: 0 0 10px #00f0ff; }
         .core {
-            width: 90px; height: 90px; border-radius: 50%;
+            width: 130px; height: 130px; border-radius: 50%;
             background: radial-gradient(circle, #fff 0%, #00f0ff 65%, rgba(0,240,255,0.2) 100%);
-            box-shadow: 0 0 60px #00f0ff, inset 0 0 20px #fff; cursor: pointer; transition: transform 0.2s ease;
+            box-shadow: 0 0 60px #00f0ff, inset 0 0 25px #fff; cursor: pointer; transition: transform 0.2s; margin-bottom: 25px;
         }
-        .core.active { transform: scale(1.35); box-shadow: 0 0 90px #00f0ff, 0 0 35px #fff; }
-        @keyframes spin { 100% { transform: rotate(360deg); } }
-
-        #terminal {
-            width: 90%; height: 140px; background: rgba(0,3,8,0.95); border: 1px solid rgba(0,240,255,0.4);
-            padding: 12px; font-size: 0.85rem; color: #00f0ff; overflow-y: auto; text-shadow: 0 0 5px rgba(0,240,255,0.6);
+        .core.speaking { transform: scale(1.25); box-shadow: 0 0 90px #00f0ff, 0 0 35px #fff; animation: pulse 0.6s infinite alternate; }
+        @keyframes pulse { 0% { transform: scale(1.2); } 100% { transform: scale(1.3); } }
+        
+        #transcript {
+            width: 100%; height: 120px; background: rgba(0,3,8,0.9); border: 1px solid rgba(0,240,255,0.3);
+            padding: 15px; color: #00f0ff; font-size: 0.95rem; overflow-y: auto; margin-bottom: 20px; line-height: 1.5;
+            text-shadow: 0 0 4px rgba(0,240,255,0.5);
         }
-        .input-row { display: flex; width: 90%; margin-top: 10px; gap: 8px; }
-        input[type="text"] {
-            flex: 1; background: rgba(0,10,20,0.9); border: 1px solid rgba(0,240,255,0.5); padding: 8px 12px;
-            color: #fff; font-family: 'Share Tech Mono', monospace; font-size: 0.9rem; outline: none;
+        .controls { display: flex; width: 100%; gap: 10px; }
+        input {
+            flex: 1; background: rgba(0,10,20,0.9); border: 1px solid rgba(0,240,255,0.5); padding: 12px;
+            color: #fff; font-family: 'Share Tech Mono', monospace; font-size: 1rem; outline: none;
         }
         button {
-            background: rgba(0,240,255,0.2); border: 1px solid #00f0ff; color: #00f0ff; padding: 0 16px;
-            font-family: 'Orbitron'; font-size: 0.75rem; cursor: pointer; box-shadow: 0 0 8px rgba(0,240,255,0.3);
+            background: rgba(0,240,255,0.25); border: 1px solid #00f0ff; color: #00f0ff; padding: 0 24px;
+            font-family: 'Orbitron'; font-size: 0.8rem; cursor: pointer; box-shadow: 0 0 10px rgba(0,240,255,0.3);
         }
-        button:hover { background: rgba(0,240,255,0.4); color: #fff; }
+        button:hover { background: rgba(0,240,255,0.5); color: #fff; }
     </style>
 </head>
 <body>
-    <header>
-        <h1>J.A.R.V.I.S. // OMNIPOTENT OS</h1>
-        <div class="badge" id="clock">00:00:00</div>
-    </header>
-    <section class="panel">
-        <div class="panel-title">SYSTEM TELEMETRY</div>
-        <div style="color:#7dd3fc; line-height:1.9;">
-            <b>Neural Model:</b> Groq OSS 120B<br>
-            <b>Long-Term Memory:</b> Supabase Linked<br>
-            <b>Voice Engine:</b> ElevenLabs v2<br>
-            <b>Security Status:</b> Secured Grid<br>
+    <div class="container">
+        <h1>J.A.R.V.I.S. // OMNI-VOICE</h1>
+        <div class="core" id="core-node" onclick="transmit('Give me a full system status report, J.A.R.V.I.S.')" title="Tap to interact"></div>
+        <div id="transcript">Neural link established. Tap the core or transmit your directive below, Sir.</div>
+        <div class="controls">
+            <input type="text" id="user-input" placeholder="Speak your command..." onkeydown="if(event.key==='Enter') sendText()">
+            <button onclick="sendText()">SEND</button>
         </div>
-    </section>
-    <section class="panel center-stage">
-        <div class="core-container">
-            <div class="core-ring"></div>
-            <div class="core" id="core" onclick="dispatchCommand('Status report, J.A.R.V.I.S.')"></div>
-        </div>
-        <div id="terminal">Neural core active. All systems reporting nominal, Sir.</div>
-        <div class="input-row">
-            <input type="text" id="command-input" placeholder="Enter directive..." onkeydown="if(event.key==='Enter') submitText()">
-            <button onclick="submitText()">TRANSMIT</button>
-        </div>
-    </section>
-    <section class="panel">
-        <div class="panel-title">DIRECTIVE ARCHIVE</div>
-        <div style="color:#7dd3fc; line-height:1.8;">
-            Type any complex directive, request code generation, or run diagnostic scans directly through the neural pipeline.
-        </div>
-    </section>
-    <script>
-        setInterval(() => document.getElementById('clock').textContent = new Date().toLocaleTimeString(), 1000);
-        const core = document.getElementById('core');
-        const terminal = document.getElementById('terminal');
+    </div>
 
-        function submitText() {
-            const input = document.getElementById('command-input');
-            if (!input.value.trim()) return;
-            dispatchCommand(input.value);
-            input.value = '';
+    <script>
+        const coreNode = document.getElementById('core-node');
+        const transcript = document.getElementById('transcript');
+
+        function sendText() {
+            const box = document.getElementById('user-input');
+            if (!box.value.trim()) return;
+            transmit(box.value);
+            box.value = '';
         }
 
-        async function dispatchCommand(text) {
-            terminal.innerHTML += `<br><span style="color:#7dd3fc;">> ${text}</span>`;
-            terminal.scrollTop = terminal.scrollHeight;
+        async function transmit(text) {
+            transcript.innerHTML += `<br><span style="color:#7dd3fc;">> ${text}</span>`;
+            transcript.scrollTop = transcript.scrollHeight;
             try {
                 const res = await fetch('/execute', {
                     method: 'POST',
@@ -262,16 +196,17 @@ HUD_UI = """<!DOCTYPE html>
                     body: JSON.stringify({ text, client_time: new Date().toLocaleString() })
                 });
                 const data = await res.json();
-                terminal.innerHTML += `<br><span style="color:#fff;">${data.response}</span>`;
-                terminal.scrollTop = terminal.scrollHeight;
+                transcript.innerHTML += `<br><span style="color:#fff;">${data.response}</span>`;
+                transcript.scrollTop = transcript.scrollHeight;
+                
                 if (data.audio_base64) {
                     const audio = new Audio("data:audio/mpeg;base64," + data.audio_base64);
-                    core.classList.add('active');
-                    audio.onended = () => core.classList.remove('active');
-                    audio.play().catch(() => core.classList.remove('active'));
+                    coreNode.classList.add('speaking');
+                    audio.onended = () => coreNode.classList.remove('speaking');
+                    audio.play().catch(() => coreNode.classList.remove('speaking'));
                 }
             } catch (err) {
-                terminal.innerHTML += `<br><span style="color:#ff4444;">Neural transmission link interrupted.</span>`;
+                transcript.innerHTML += `<br><span style="color:#ff4444;">Transmission fault. Server unreachable.</span>`;
             }
         }
     </script>
@@ -280,5 +215,5 @@ HUD_UI = """<!DOCTYPE html>
 """
 
 @app.get("/", response_class=HTMLResponse)
-async def hud_root():
-    return HUD_UI
+async def serve_hud():
+    return HUD_HTML
