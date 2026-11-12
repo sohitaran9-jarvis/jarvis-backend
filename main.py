@@ -64,15 +64,16 @@ async def execute_directive(payload: Directive):
 
     system_prompt = (
         "You are J.A.R.V.I.S., Tony Stark's ultra-capable AI chief of staff and loyal friend. "
-        "You respond immediately with complete common sense and proactive intelligence. "
-        "When asked about weather, time, schedule, or status, provide direct, helpful answers instantly. "
+        "You have total common sense and answer questions directly, naturally, and immediately. "
+        "When asked about weather, time, schedule, or status, provide precise, helpful information. "
         "CRITICAL: Output plain spoken text only—no markdown, asterisks, bullet points, or emojis.\n\n"
         f"{brain_context}"
     )
 
     try:
+        # Using the current high-performance Groq model endpoint
         completion = groq_client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
+            model="openai/gpt-oss-120b",
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": payload.text}
@@ -145,7 +146,7 @@ HUD_HTML = """<!DOCTYPE html>
         @keyframes spin-reverse { 100% { transform: rotate(-360deg); } }
         @keyframes pulse-glow { 0% { transform: scale(1.25); } 100% { transform: scale(1.4); } }
 
-        /* Tactical HUD Voice Status Monitor (No chat log) */
+        /* Tactical HUD Voice Status Monitor */
         #hud-status {
             text-align: center; width: 85%; padding: 12px; background: rgba(1,10,22,0.8);
             border: 1px solid rgba(0,240,255,0.4); box-shadow: inset 0 0 15px rgba(0,240,255,0.1);
@@ -279,7 +280,7 @@ HUD_HTML = """<!DOCTYPE html>
                 const u = new SpeechSynthesisUtterance(text);
                 u.rate = 1.05; u.pitch = 0.95;
                 const voices = window.speechSynthesis.getVoices();
-                const uk = voices.find(v => v.lang === 'en-GB' || v.name.includes('UK') || v.name.includes('British') || v.name.includes('Daniel') || v.name.includes('Oliver'));
+                const uk = voices.find(v => v.lang === 'en-GB' || v.name.includes('UK') || v.name.includes('British') || v.name.includes('Daniel') || v.name.includes('Oliver') || v.name.includes('English'));
                 if (uk) u.voice = uk;
                 
                 u.onstart = () => {
