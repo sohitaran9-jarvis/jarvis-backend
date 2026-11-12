@@ -1,5 +1,6 @@
 fastapi
 uvicorn
-anthropic
 requests
 pydantic
+supabase
+groq
