@@ -2,7 +2,7 @@ import os
 import requests
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel
 from supabase import create_client, Client
 from groq import Groq
@@ -20,6 +20,8 @@ app.add_middleware(
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "").strip()
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "").strip()
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY", "").strip()
+ELEVENLABS_API_KEY = os.environ.get("ELEVENLABS_API_KEY", "").strip()
+ELEVENLABS_VOICE_ID = os.environ.get("ELEVENLABS_VOICE_ID", "").strip()
 
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "").strip()
@@ -71,9 +73,9 @@ async def execute_directive(payload: Directive):
     )
 
     try:
-        # Using Groq's ultra-fast instant model for zero latency
+        # Using a universally supported, high-speed Groq model endpoint
         completion = groq_client.chat.completions.create(
-            model="llama-3.1-8b-instant",
+            model="llama3-8b-8192",
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": payload.text}
@@ -85,9 +87,32 @@ async def execute_directive(payload: Directive):
         if any(w in payload.text.lower() for w in ["alert", "cinema", "seat", "amazon", "book", "notify", "telegram", "status", "urgent"]):
             send_telegram(reply)
 
-        return {"response": reply}
+        audio_url = None
+        # If ElevenLabs credentials are provided, generate true custom voice audio stream
+        if ELEVENLABS_API_KEY and ELEVENLABS_VOICE_ID:
+            eleven_url = f"https://api.elevenlabs.io/v1/text-to-speech/{ELEVENLABS_VOICE_ID}"
+            headers = {
+                "Accept": "audio/mpeg",
+                "Content-Type": "application/json",
+                "xi-api-key": ELEVENLABS_API_KEY
+            }
+            body = {
+                "text": reply,
+                "model_id": "eleven_monolingual_v1",
+                "voice_settings": {"stability": 0.5, "similarity_boost": 0.75}
+            }
+            try:
+                r = requests.post(eleven_url, json=body, headers=headers)
+                if r.status_code == 200:
+                    import base64
+                    b64_audio = base64.b64encode(r.content).decode("utf-8")
+                    audio_url = f"data:audio/mpeg;base64,{b64_audio}"
+            except Exception:
+                pass
+
+        return {"response": reply, "audio_url": audio_url}
     except Exception as e:
-        return {"response": f"Neural core error: {str(e)}"}
+        return {"response": f"Neural core error: {str(e)}", "audio_url": None}
 
 HUD_HTML = """<!DOCTYPE html>
 <html lang="en">
@@ -274,13 +299,35 @@ HUD_HTML = """<!DOCTYPE html>
             holoWindow.classList.add('active');
         }
 
-        function speak(text) {
+        function speak(text, audioUrl) {
+            jarvisStatusText.textContent = text;
+            arcCore.classList.add('speaking');
+
+            // If ElevenLabs audio stream is available, play it directly with your custom voice ID!
+            if (audioUrl) {
+                const audio = new Audio(audioUrl);
+                audio.onended = () => {
+                    arcCore.classList.remove('speaking');
+                    jarvisStatusText.textContent = "Listening for directive...";
+                };
+                audio.onerror = () => {
+                    fallbackBrowserSpeech(text);
+                };
+                audio.play().catch(() => {
+                    fallbackBrowserSpeech(text);
+                });
+            } else {
+                fallbackBrowserSpeech(text);
+            }
+        }
+
+        function fallbackBrowserSpeech(text) {
             if ('speechSynthesis' in window) {
                 window.speechSynthesis.cancel();
                 const u = new SpeechSynthesisUtterance(text);
                 u.rate = 1.05; u.pitch = 0.95;
                 const voices = window.speechSynthesis.getVoices();
-                const uk = voices.find(v => v.lang === 'en-GB' || v.name.includes('UK') || v.name.includes('British') || v.name.includes('Daniel') || v.name.includes('Oliver') || v.name.includes('English'));
+                const uk = voices.find(v => v.lang === 'en-GB' || v.name.includes('UK') || v.name.includes('British') || v.name.includes('Daniel') || v.name.includes('Oliver'));
                 if (uk) u.voice = uk;
                 
                 u.onstart = () => {
@@ -306,9 +353,9 @@ HUD_HTML = """<!DOCTYPE html>
             try {
                 const res = await fetch('/execute', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text }) });
                 const data = await res.json();
-                speak(data.response);
+                speak(data.response, data.audio_url);
             } catch (err) {
-                speak("Transmission error detected, Sir.");
+                speak("Transmission error detected, Sir.", null);
             }
         }
 
@@ -324,18 +371,15 @@ HUD_HTML = """<!DOCTYPE html>
                 const speechToText = event.results[event.results.length - 1][0].transcript.trim();
                 const lower = speechToText.toLowerCase();
 
-                // ONLY trigger if the speech contains or starts with "jarvis"
                 if (lower.includes("jarvis")) {
-                    // Extract whatever comes after "jarvis"
                     let parts = speechToText.split(/jarvis/i);
                     let command = parts[parts.length - 1].trim();
                     if (command.length > 1) {
                         processDirective(command);
                     } else {
-                        speak("Yes, Sir? How can I assist?");
+                        speak("Yes, Sir? How can I assist?", null);
                     }
                 }
-                // Otherwise, completely ignore it so you can talk to yourself or others freely!
             };
 
             recognition.onend = () => {
