@@ -64,14 +64,15 @@ async def execute_directive(payload: Directive):
 
     system_prompt = (
         "You are J.A.R.V.I.S., Tony Stark's ultra-capable AI chief of staff and loyal friend. "
-        "You manage schedules, provide live intelligence briefings, and coordinate system telemetry. "
+        "You respond immediately with complete common sense and proactive intelligence. "
+        "When asked about weather, time, schedule, or status, provide direct, helpful answers instantly. "
         "CRITICAL: Output plain spoken text only—no markdown, asterisks, bullet points, or emojis.\n\n"
         f"{brain_context}"
     )
 
     try:
         completion = groq_client.chat.completions.create(
-            model="llama3-70b-8192",
+            model="llama-3.3-70b-versatile",
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": payload.text}
@@ -167,7 +168,7 @@ HUD_HTML = """<!DOCTYPE html>
 </head>
 <body>
     <header>
-        <h1>J.A.R.V.I.S. // OS</h1>
+        <h1>J.A.R.V.I.S. // CLOUD OS</h1>
         <div class="badge" id="live-clock">00:00:00</div>
     </header>
 
