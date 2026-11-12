@@ -81,7 +81,6 @@ async def execute_directive(payload: Directive):
         )
         reply = completion.choices[0].message.content
 
-        # Automatically trigger Telegram alert on checks, bookings, seats, or alerts
         if any(w in payload.text.lower() for w in ["alert", "cinema", "seat", "amazon", "book", "notify", "telegram", "status"]):
             send_telegram(reply)
 
@@ -91,8 +90,7 @@ async def execute_directive(payload: Directive):
 
 @app.api_route("/", methods=["GET", "HEAD"], response_class=HTMLResponse)
 async def serve_hud():
-    return """
-<!DOCTYPE html>
+    return """<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -145,42 +143,3 @@ async def serve_hud():
     <footer>
         <button class="btn" id="mic-btn">MIC: ON</button>
         <input type="text" id="input" placeholder="Type command (e.g., 'Alert me about cinema seats')..." />
-    </footer>
-    <script>
-        const cam = document.getElementById('cam');
-        const input = document.getElementById('input');
-        const log = document.getElementById('log');
-        const arcCore = document.getElementById('arc-core');
-        navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } }).then(s => cam.srcObject = s).catch(() => {});
-
-        function speak(text) {
-            if ('speechSynthesis' in window) {
-                window.speechSynthesis.cancel();
-                const u = new SpeechSynthesisUtterance(text);
-                u.rate = 1.05; u.pitch = 0.95;
-                const voices = window.speechSynthesis.getVoices();
-                const uk = voices.find(v => v.lang === 'en-GB' || v.name.includes('UK') || v.name.includes('British'));
-                if (uk) u.voice = uk;
-                u.onstart = () => arcCore.style.transform = "scale(1.18)";
-                u.onend = () => arcCore.style.transform = "scale(1)";
-                window.speechSynthesis.speak(u);
-            }
-        }
-
-        async function sendCommand(text) {
-            if (!text.trim()) return;
-            log.innerHTML += `<div class="msg-user">&gt; ${text}</div>`;
-            log.scrollTop = log.scrollHeight;
-            const res = await fetch('/execute', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text }) });
-            const data = await res.json();
-            log.innerHTML += `<div class="msg-jarvis">J.A.R.V.I.S.: ${data.response}</div>`;
-            log.scrollTop = log.scrollHeight;
-            speak(data.response);
-        }
-
-        input.addEventListener('keypress', (e) => {
-            if (e.key === 'Enter') { const v = input.value; input.value = ''; sendCommand(v); }
-        });
-    </script>
-</body>
-</html>
