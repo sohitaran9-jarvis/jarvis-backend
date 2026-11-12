@@ -69,7 +69,6 @@ async def execute_directive(payload: Directive):
     if not groq_client:
         return {"response": "Sir, please configure your GROQ_API_KEY in Render.", "audio_url": None}
 
-    # Explicitly check and save memories when requested
     if supabase and any(w in payload.text.lower() for w in ["remember", "save this", "note that", "store this", "my favorite"]):
         try:
             supabase.table("memories").insert({"category": "preference", "content": payload.text}).execute()
@@ -427,3 +426,8 @@ HUD_HTML = """<!DOCTYPE html>
     </script>
 </body>
 </html>
+"""
+
+@app.api_route("/", methods=["GET", "HEAD"], response_class=HTMLResponse)
+async def serve_hud():
+    return HUD_HTML
