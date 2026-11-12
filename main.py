@@ -1,5 +1,6 @@
 import os
 import re
+import datetime
 import requests
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -58,6 +59,7 @@ def send_telegram(message_text: str):
 
 class Directive(BaseModel):
     text: str
+    client_time: str = ""
 
 @app.post("/execute")
 async def execute_directive(payload: Directive):
@@ -65,10 +67,13 @@ async def execute_directive(payload: Directive):
     if not groq_client:
         return {"response": "Sir, please configure your GROQ_API_KEY in Render."}
 
+    current_time = payload.client_time or datetime.datetime.now().strftime("%H:%M:%S, %A, %B %d, %Y")
+
     system_prompt = (
+        f"Current exact system time and date: {current_time}. "
         "You are J.A.R.V.I.S., Tony Stark's ultra-capable AI chief of staff and loyal friend. "
-        "You have absolute common sense, extreme speed, and precision. "
-        "When asked about weather, time, schedule, or status, provide direct, concise, and helpful spoken answers. "
+        "You possess complete common sense and absolute real-time awareness. "
+        "When asked about the time, weather, schedule, or status, provide direct, natural, spoken answers immediately. "
         "CRITICAL: Never output markdown formatting, asterisks, brackets, colons, or bullet points. "
         "Write strictly in plain conversational sentences that can be spoken out loud naturally."
     )
@@ -84,7 +89,6 @@ async def execute_directive(payload: Directive):
         )
         raw_reply = completion.choices[0].message.content
         
-        # Strip out unwanted code symbols and punctuation so speech models don't read them aloud
         clean_reply = re.sub(r'[_*`#\[\]{}:;<>]+', ' ', raw_reply)
         clean_reply = re.sub(r'\s+', ' ', clean_reply).strip()
 
@@ -343,8 +347,14 @@ HUD_HTML = """<!DOCTYPE html>
                 triggerHologram("Target optical feed captured. All parameters verified against security protocols.");
             }
 
+            const clientTime = new Date().toLocaleString();
+
             try {
-                const res = await fetch('/execute', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text }) });
+                const res = await fetch('/execute', { 
+                    method: 'POST', 
+                    headers: { 'Content-Type': 'application/json' }, 
+                    body: JSON.stringify({ text, client_time: clientTime }) 
+                });
                 const data = await res.json();
                 speak(data.response, data.audio_url);
             } catch (err) {
