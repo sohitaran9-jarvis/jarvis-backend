@@ -1,8 +1,9 @@
 import os
+import re
 import requests
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 from supabase import create_client, Client
 from groq import Groq
@@ -66,29 +67,31 @@ async def execute_directive(payload: Directive):
 
     system_prompt = (
         "You are J.A.R.V.I.S., Tony Stark's ultra-capable AI chief of staff and loyal friend. "
-        "You respond with absolute common sense, extreme speed, and precision. "
-        "When asked about weather, time, schedule, or status, provide direct, concise, and helpful answers. "
-        "CRITICAL: Output plain spoken text only—no markdown, asterisks, bullet points, or emojis.\n\n"
-        f"{brain_context}"
+        "You have absolute common sense, extreme speed, and precision. "
+        "When asked about weather, time, schedule, or status, provide direct, concise, and helpful spoken answers. "
+        "CRITICAL: Never output markdown formatting, asterisks, brackets, colons, or bullet points. "
+        "Write strictly in plain conversational sentences that can be spoken out loud naturally."
     )
 
     try:
-        # Using a universally supported, high-speed Groq model endpoint
         completion = groq_client.chat.completions.create(
-            model="llama3-8b-8192",
+            model="openai/gpt-oss-120b",
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": payload.text}
             ],
             max_tokens=250
         )
-        reply = completion.choices[0].message.content
+        raw_reply = completion.choices[0].message.content
+        
+        # Strip out unwanted code symbols and punctuation so speech models don't read them aloud
+        clean_reply = re.sub(r'[_*`#\[\]{}:;<>]+', ' ', raw_reply)
+        clean_reply = re.sub(r'\s+', ' ', clean_reply).strip()
 
         if any(w in payload.text.lower() for w in ["alert", "cinema", "seat", "amazon", "book", "notify", "telegram", "status", "urgent"]):
-            send_telegram(reply)
+            send_telegram(clean_reply)
 
         audio_url = None
-        # If ElevenLabs credentials are provided, generate true custom voice audio stream
         if ELEVENLABS_API_KEY and ELEVENLABS_VOICE_ID:
             eleven_url = f"https://api.elevenlabs.io/v1/text-to-speech/{ELEVENLABS_VOICE_ID}"
             headers = {
@@ -97,7 +100,7 @@ async def execute_directive(payload: Directive):
                 "xi-api-key": ELEVENLABS_API_KEY
             }
             body = {
-                "text": reply,
+                "text": clean_reply,
                 "model_id": "eleven_monolingual_v1",
                 "voice_settings": {"stability": 0.5, "similarity_boost": 0.75}
             }
@@ -110,7 +113,7 @@ async def execute_directive(payload: Directive):
             except Exception:
                 pass
 
-        return {"response": reply, "audio_url": audio_url}
+        return {"response": clean_reply, "audio_url": audio_url}
     except Exception as e:
         return {"response": f"Neural core error: {str(e)}", "audio_url": None}
 
@@ -146,7 +149,6 @@ HUD_HTML = """<!DOCTYPE html>
         }
         .panel-title { font-family: 'Orbitron', sans-serif; font-size: 0.75rem; border-bottom: 1px solid rgba(0,240,255,0.4); padding-bottom: 5px; margin-bottom: 10px; color: #7dd3fc; letter-spacing: 1px; }
         
-        /* Center Stage Arc Reactor Core & Status Feed */
         .center-stage { display: flex; flex-direction: column; align-items: center; justify-content: center; position: relative; }
         .core-container { position: relative; width: 180px; height: 180px; display: flex; align-items: center; justify-content: center; margin-bottom: 20px; }
         .core-ring {
@@ -171,7 +173,6 @@ HUD_HTML = """<!DOCTYPE html>
         @keyframes spin-reverse { 100% { transform: rotate(-360deg); } }
         @keyframes pulse-glow { 0% { transform: scale(1.25); } 100% { transform: scale(1.4); } }
 
-        /* Tactical HUD Voice Status Monitor */
         #hud-status {
             text-align: center; width: 85%; padding: 12px; background: rgba(1,10,22,0.8);
             border: 1px solid rgba(0,240,255,0.4); box-shadow: inset 0 0 15px rgba(0,240,255,0.1);
@@ -179,7 +180,6 @@ HUD_HTML = """<!DOCTYPE html>
         .status-label { font-family: 'Orbitron'; font-size: 0.75rem; color: #7dd3fc; margin-bottom: 4px; letter-spacing: 1px; }
         .status-text { font-size: 0.95rem; color: #fff; text-shadow: 0 0 6px rgba(0,240,255,0.5); }
 
-        /* Holographic Pop-up Window ("Look at this") */
         #holo-window {
             position: absolute; top: 15%; left: 50%; transform: translateX(-50%) scale(0.9);
             width: 420px; background: rgba(1,15,30,0.95); border: 2px solid #00f0ff;
@@ -198,7 +198,6 @@ HUD_HTML = """<!DOCTYPE html>
         <div class="badge" id="live-clock">00:00:00</div>
     </header>
 
-    <!-- Holographic Pop-up Window -->
     <div id="holo-window">
         <div class="holo-header">
             <span>VISUAL TELEMETRY ANALYSIS</span>
@@ -209,7 +208,6 @@ HUD_HTML = """<!DOCTYPE html>
         </div>
     </div>
 
-    <!-- Left Panel: Weather & Calendar -->
     <section class="panel">
         <div class="panel-title">ENVIRONMENT & SCHEDULE</div>
         <div style="color:#7dd3fc; line-height:1.7;" id="weather-widget">
@@ -224,7 +222,6 @@ HUD_HTML = """<!DOCTYPE html>
         </div>
     </section>
 
-    <!-- Center Stage: Arc Reactor & Live Voice Status -->
     <section class="panel center-stage">
         <div class="core-container">
             <div class="core-ring"></div>
@@ -237,7 +234,6 @@ HUD_HTML = """<!DOCTYPE html>
         </div>
     </section>
 
-    <!-- Right Panel: Intelligence & Interests -->
     <section class="panel">
         <div class="panel-title">INTELLIGENCE & INTERESTS</div>
         <div style="color:#7dd3fc; line-height:1.7;">
@@ -259,13 +255,11 @@ HUD_HTML = """<!DOCTYPE html>
         const holoText = document.getElementById('holo-text');
         const liveClock = document.getElementById('live-clock');
 
-        // Clock update
         setInterval(() => {
             const d = new Date();
             liveClock.textContent = d.toLocaleTimeString();
         }, 1000);
 
-        // Fetch local weather automatically via Geolocation
         if (navigator.geolocation) {
             navigator.geolocation.getCurrentPosition(async (pos) => {
                 try {
@@ -303,7 +297,6 @@ HUD_HTML = """<!DOCTYPE html>
             jarvisStatusText.textContent = text;
             arcCore.classList.add('speaking');
 
-            // If ElevenLabs audio stream is available, play it directly with your custom voice ID!
             if (audioUrl) {
                 const audio = new Audio(audioUrl);
                 audio.onended = () => {
@@ -359,7 +352,6 @@ HUD_HTML = """<!DOCTYPE html>
             }
         }
 
-        // Always-On Wake Word Detection ("Jarvis")
         const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
         if (SpeechRecognition) {
             const recognition = new SpeechRecognition();
