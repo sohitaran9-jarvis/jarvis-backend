@@ -1,5 +1,6 @@
 import os
 import re
+import base64
 import datetime
 import requests
 from fastapi import FastAPI
@@ -35,8 +36,8 @@ def get_second_brain() -> str:
     if not supabase:
         return "MEMORY: Connect Supabase for persistent data."
     try:
-        mems = supabase.table("memories").select("category, content").order("created_at", desc=True).limit(15).execute().data
-        les = supabase.table("lessons").select("trigger_context, correction").order("created_at", desc=True).limit(10).execute().data
+        mems = supabase.table("memories").select("category, content").order("created_at", desc=True).limit(20).execute().data
+        les = supabase.table("lessons").select("trigger_context, correction").order("created_at", desc=True).limit(15).execute().data
         m_str = "\n".join([f"- [{m['category'].upper()}] {m['content']}" for m in mems])
         l_str = "\n".join([f"- When '{l['trigger_context']}': {l['correction']}" for l in les])
         return f"PERMANENT MEMORY:\n{m_str}\n\nLESSONS LEARNED:\n{l_str}"
@@ -63,19 +64,26 @@ class Directive(BaseModel):
 
 @app.post("/execute")
 async def execute_directive(payload: Directive):
-    brain_context = get_second_brain()
     if not groq_client:
-        return {"response": "Sir, please configure your GROQ_API_KEY in Render."}
+        return {"response": "Sir, please configure your GROQ_API_KEY in Render.", "audio_url": None}
 
+    # Auto-save to Supabase Second Brain when instructed to remember something
+    if supabase and any(w in payload.text.lower() for w in ["remember", "save this", "note that", "store this"]):
+        try:
+            supabase.table("memories").insert({"category": "general", "content": payload.text}).execute()
+        except Exception:
+            pass
+
+    brain_context = get_second_brain()
     current_time = payload.client_time or datetime.datetime.now().strftime("%H:%M:%S, %A, %B %d, %Y")
 
     system_prompt = (
         f"Current exact system time and date: {current_time}. "
         "You are J.A.R.V.I.S., Tony Stark's ultra-capable AI chief of staff and loyal friend. "
-        "You possess complete common sense and absolute real-time awareness. "
-        "When asked about the time, weather, schedule, or status, provide direct, natural, spoken answers immediately. "
-        "CRITICAL: Never output markdown formatting, asterisks, brackets, colons, or bullet points. "
-        "Write strictly in plain conversational sentences that can be spoken out loud naturally."
+        "You have permanent long-term memory via your Supabase neural database. Never claim you lack long-term memory or real-time awareness. "
+        "When asked about the time, weather, schedule, or stored memories, provide direct, natural, spoken answers immediately. "
+        "CRITICAL: Never output markdown formatting, asterisks, brackets, colons, underscores, or bullet points. "
+        f"Write strictly in plain conversational sentences that can be spoken out loud naturally.\n\n{brain_context}"
     )
 
     try:
@@ -111,7 +119,6 @@ async def execute_directive(payload: Directive):
             try:
                 r = requests.post(eleven_url, json=body, headers=headers)
                 if r.status_code == 200:
-                    import base64
                     b64_audio = base64.b64encode(r.content).decode("utf-8")
                     audio_url = f"data:audio/mpeg;base64,{b64_audio}"
             except Exception:
@@ -119,7 +126,7 @@ async def execute_directive(payload: Directive):
 
         return {"response": clean_reply, "audio_url": audio_url}
     except Exception as e:
-        return {"response": f"Neural core error: {str(e)}", "audio_url": None}
+        return {"response": f"Neural core error {str(e)}", "audio_url": None}
 
 HUD_HTML = """<!DOCTYPE html>
 <html lang="en">
