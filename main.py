@@ -69,7 +69,6 @@ async def execute_directive(payload: Directive):
     if not groq_client:
         return {"response": "Sir, please configure your GROQ_API_KEY in Render.", "audio_url": None, "action": None}
 
-    # Auto-save to Supabase when asked to remember
     if supabase and any(w in payload.text.lower() for w in ["remember", "save this", "note that", "store this", "my favorite"]):
         try:
             supabase.table("memories").insert({"category": "preference", "content": payload.text}).execute()
@@ -83,8 +82,8 @@ async def execute_directive(payload: Directive):
         f"Current exact system time and date: {current_time}. "
         "You are J.A.R.V.I.S., Tony Stark's ultra-capable, witty, and human-like AI chief of staff and loyal friend. "
         "You have absolute real-time awareness and permanent long-term memory via Supabase. "
-        "When asked to place a call or dial a number, immediately confirm you are initiating the telecom bridge and output a phone URI protocol if applicable. "
-        "When the user is finishing a task, wrapping up, or pausing, proactively ask a human closing question like 'Is that all, Sir?'. "
+        "When asked to place a call or dial a number, confirm you are initiating the secure telecom bridge. "
+        "Speak naturally, fluidly, and dynamically like a human companion. "
         "Never output markdown formatting, asterisks, brackets, colons, underscores, or bullet points. "
         f"Write strictly in rich, human conversational sentences that can be spoken out loud naturally.\n\n{brain_context}"
     )
@@ -103,12 +102,12 @@ async def execute_directive(payload: Directive):
         clean_reply = re.sub(r'[_*`#\[\]{}:;<>]+', ' ', raw_reply)
         clean_reply = re.sub(r'\s+', ' ', clean_reply).strip()
 
-        # Check if the user requested a phone call
         action = None
         phone_match = re.search(r'(\+?[\d\s\-\(\)]{7,}\d)', payload.text)
         if any(w in payload.text.lower() for w in ["call", "dial", "phone"]) and phone_match:
             digits = re.sub(r'\D', '', phone_match.group(1))
             action = f"tel:{digits}"
+            clean_reply = f"Initiating secure telecom bridge to {phone_match.group(1)}, Sir. Click the secure channel popup to connect."
 
         if any(w in payload.text.lower() for w in ["alert", "cinema", "seat", "amazon", "book", "notify", "telegram", "status", "urgent"]):
             send_telegram(clean_reply)
@@ -124,7 +123,7 @@ async def execute_directive(payload: Directive):
             body = {
                 "text": clean_reply,
                 "model_id": "eleven_multilingual_v2",
-                "voice_settings": {"stability": 0.5, "similarity_boost": 0.75, "style": 0.15}
+                "voice_settings": {"stability": 0.4, "similarity_boost": 0.85, "style": 0.25}
             }
             try:
                 r = requests.post(eleven_url, json=body, headers=headers)
@@ -248,11 +247,11 @@ HUD_HTML = """<!DOCTYPE html>
         <div class="core-container">
             <div class="core-ring"></div>
             <div class="core-ring-inner"></div>
-            <div class="core" id="arc-core" onclick="toggleSession()" title="Click to wake J.A.R.V.I.S."></div>
+            <div class="core" id="arc-core" onclick="toggleSession()" title="Click to toggle voice link"></div>
         </div>
         <div id="hud-status">
-            <div class="status-label" id="session-state-label">SYSTEM STANDBY</div>
-            <div class="status-text" id="jarvis-status-text">Say "Jarvis" or click core to activate.</div>
+            <div class="status-label" id="session-state-label">SYSTEM ONLINE</div>
+            <div class="status-text" id="jarvis-status-text">Continuous voice link active, Sir.</div>
         </div>
     </section>
 
@@ -278,7 +277,7 @@ HUD_HTML = """<!DOCTYPE html>
         const holoText = document.getElementById('holo-text');
         const liveClock = document.getElementById('live-clock');
 
-        let sessionActive = false;
+        let sessionActive = true;
 
         setInterval(() => {
             const d = new Date();
@@ -322,32 +321,21 @@ HUD_HTML = """<!DOCTYPE html>
             jarvisStatusText.textContent = text;
             arcCore.classList.add('speaking');
 
+            if (actionUrl) {
+                holoText.innerHTML = `Secure Telecom Link Ready:<br><br><a href="${actionUrl}" style="color: #00f0ff; font-size: 1.2rem; text-decoration: underline;" target="_blank">[ CLICK TO DIAL / CALL ]</a>`;
+                holoWindow.classList.add('active');
+            }
+
             const handleEnd = () => {
                 arcCore.classList.remove('speaking');
-                // If J.A.R.V.I.S just asked "Is that all, Sir?" and response indicates conclusion, reset session!
-                if (text.toLowerCase().includes("all")) {
-                    sessionActive = false;
-                    sessionStateLabel.textContent = "SYSTEM STANDBY";
-                    jarvisStatusText.textContent = "Say 'Jarvis' or click core to activate.";
-                } else {
-                    jarvisStatusText.textContent = "Listening continuously, Sir...";
-                }
-
-                // Execute telecommunication action if triggered (e.g. phone dialer)
-                if (actionUrl) {
-                    window.location.href = actionUrl;
-                }
+                jarvisStatusText.textContent = "Listening continuously, Sir...";
             };
 
             if (audioUrl) {
                 const audio = new Audio(audioUrl);
                 audio.onended = handleEnd;
-                audio.onerror = () => {
-                    fallbackBrowserSpeech(text, handleEnd);
-                };
-                audio.play().catch(() => {
-                    fallbackBrowserSpeech(text, handleEnd);
-                });
+                audio.onerror = () => { fallbackBrowserSpeech(text, handleEnd); };
+                audio.play().catch(() => { fallbackBrowserSpeech(text, handleEnd); });
             } else {
                 fallbackBrowserSpeech(text, handleEnd);
             }
@@ -377,14 +365,6 @@ HUD_HTML = """<!DOCTYPE html>
             if (!text.trim()) return;
             jarvisStatusText.textContent = `Processing: "${text}"`;
 
-            // Check if user is confirming session closure ("yes", "all good", etc.) when session was winding down
-            if (sessionActive && (text.toLowerCase().includes("yes") || text.toLowerCase().includes("all good") || text.toLowerCase().includes("that's it"))) {
-                speak("Very well, Sir. Standing by.", null, null);
-                sessionActive = false;
-                sessionStateLabel.textContent = "SYSTEM STANDBY";
-                return;
-            }
-
             if (text.toLowerCase().includes("look at this")) {
                 triggerHologram("Target optical feed captured. All parameters verified against security protocols.");
             }
@@ -406,14 +386,8 @@ HUD_HTML = """<!DOCTYPE html>
 
         function toggleSession() {
             sessionActive = !sessionActive;
-            if (sessionActive) {
-                sessionStateLabel.textContent = "J.A.R.V.I.S. ACTIVE";
-                jarvisStatusText.textContent = "Session initialized. Speak freely, Sir.";
-                speak("Systems online. How may I assist you today, Sir?", null, null);
-            } else {
-                sessionStateLabel.textContent = "SYSTEM STANDBY";
-                jarvisStatusText.textContent = "Session paused.";
-            }
+            sessionStateLabel.textContent = sessionActive ? "SYSTEM ONLINE" : "SYSTEM STANDBY";
+            jarvisStatusText.textContent = sessionActive ? "Continuous voice link active, Sir." : "Session paused.";
         }
 
         const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -425,22 +399,8 @@ HUD_HTML = """<!DOCTYPE html>
 
             recognition.onresult = (event) => {
                 const speechToText = event.results[event.results.length - 1][0].transcript.trim();
-                const lower = speechToText.toLowerCase();
-
-                if (!sessionActive) {
-                    if (lower.includes("jarvis")) {
-                        sessionActive = true;
-                        sessionStateLabel.textContent = "J.A.R.V.I.S. ACTIVE";
-                        let parts = speechToText.split(/jarvis/i);
-                        let command = parts[parts.length - 1].trim();
-                        if (command.length > 1) {
-                            processDirective(command);
-                        } else {
-                            speak("Online and listening, Sir.", null, null);
-                        }
-                    }
-                } else {
-                    processDirective(speechToTest);
+                if (sessionActive && speechToText.length > 1) {
+                    processDirective(speechToText);
                 }
             };
 
