@@ -71,7 +71,7 @@ async def execute_directive(payload: Directive):
 
     try:
         completion = groq_client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
+            model="llama3-70b-8192",
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": payload.text}
@@ -92,13 +92,13 @@ HUD_HTML = """<!DOCTYPE html>
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>J.A.R.V.I.S. - HOLOGRAPHIC OS</title>
+    <title>J.A.R.V.I.S. - HOLOGRAPHIC HUD</title>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Share+Tech+Mono&display=swap');
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body {
             background-color: #01060e; color: #00f0ff; font-family: 'Share Tech Mono', monospace; height: 100vh;
-            display: grid; grid-template-rows: 55px 1fr 65px; grid-template-columns: 320px 1fr 320px; gap: 8px; padding: 10px; overflow: hidden;
+            display: grid; grid-template-rows: 55px 1fr; grid-template-columns: 320px 1fr 320px; gap: 8px; padding: 10px; overflow: hidden;
             background-image: 
                 linear-gradient(rgba(0,240,255,0.03) 1px, transparent 1px),
                 linear-gradient(90deg, rgba(0,240,255,0.03) 1px, transparent 1px),
@@ -114,14 +114,14 @@ HUD_HTML = """<!DOCTYPE html>
         .badge { border: 1px solid #00f0ff; padding: 3px 10px; font-size: 0.7rem; background: rgba(0,240,255,0.15); font-family: 'Orbitron'; box-shadow: 0 0 6px #00f0ff; }
         
         .panel {
-            border: 1px solid rgba(0,240,255,0.3); background: rgba(2,10,22,0.75); padding: 12px; display: flex; flex-direction: column;
+            border: 1px solid rgba(0,240,255,0.3); background: rgba(2,10,22,0.75); padding: 14px; display: flex; flex-direction: column;
             box-shadow: inset 0 0 20px rgba(0,240,255,0.04); position: relative; font-size: 0.85rem;
         }
-        .panel-title { font-family: 'Orbitron', sans-serif; font-size: 0.75rem; border-bottom: 1px solid rgba(0,240,255,0.4); padding-bottom: 5px; margin-bottom: 8px; color: #7dd3fc; letter-spacing: 1px; }
+        .panel-title { font-family: 'Orbitron', sans-serif; font-size: 0.75rem; border-bottom: 1px solid rgba(0,240,255,0.4); padding-bottom: 5px; margin-bottom: 10px; color: #7dd3fc; letter-spacing: 1px; }
         
-        /* Center Stage Arc Reactor Core */
+        /* Center Stage Arc Reactor Core & Status Feed */
         .center-stage { display: flex; flex-direction: column; align-items: center; justify-content: center; position: relative; }
-        .core-container { position: relative; width: 160px; height: 160px; display: flex; align-items: center; justify-content: center; margin-bottom: 12px; }
+        .core-container { position: relative; width: 180px; height: 180px; display: flex; align-items: center; justify-content: center; margin-bottom: 20px; }
         .core-ring {
             position: absolute; width: 100%; height: 100%; border-radius: 50%;
             border: 2px dashed rgba(0,240,255,0.6); animation: spin 12s linear infinite;
@@ -131,23 +131,26 @@ HUD_HTML = """<!DOCTYPE html>
             border: 2px solid rgba(0,240,255,0.8); animation: spin-reverse 8s linear infinite;
         }
         .core {
-            width: 70px; height: 70px; border-radius: 50%;
+            width: 80px; height: 80px; border-radius: 50%;
             background: radial-gradient(circle, #ffffff 0%, #00f0ff 60%, rgba(0,240,255,0.2) 100%);
-            box-shadow: 0 0 35px #00f0ff, inset 0 0 15px #fff; transition: transform 0.15s ease-in-out;
+            box-shadow: 0 0 40px #00f0ff, inset 0 0 15px #fff; transition: transform 0.15s ease-in-out;
         }
-        /* Dynamic pulsing class when J.A.R.V.I.S. talks */
         .core.speaking {
             transform: scale(1.35);
-            box-shadow: 0 0 65px #00f0ff, 0 0 20px #fff, inset 0 0 25px #fff;
+            box-shadow: 0 0 70px #00f0ff, 0 0 25px #fff, inset 0 0 30px #fff;
             animation: pulse-glow 0.5s infinite alternate;
         }
         @keyframes spin { 100% { transform: rotate(360deg); } }
         @keyframes spin-reverse { 100% { transform: rotate(-360deg); } }
         @keyframes pulse-glow { 0% { transform: scale(1.25); } 100% { transform: scale(1.4); } }
 
-        #log { width: 100%; flex: 1; overflow-y: auto; font-size: 0.9rem; line-height: 1.4; border-top: 1px solid rgba(0,240,255,0.2); padding-top: 8px; }
-        .msg-user { color: #fff; margin-bottom: 4px; text-shadow: 0 0 4px rgba(255,255,255,0.5); }
-        .msg-jarvis { color: #00f0ff; margin-bottom: 10px; text-shadow: 0 0 4px rgba(0,240,255,0.4); }
+        /* Tactical HUD Voice Status Monitor (No chat log) */
+        #hud-status {
+            text-align: center; width: 85%; padding: 12px; background: rgba(1,10,22,0.8);
+            border: 1px solid rgba(0,240,255,0.4); box-shadow: inset 0 0 15px rgba(0,240,255,0.1);
+        }
+        .status-label { font-family: 'Orbitron'; font-size: 0.75rem; color: #7dd3fc; margin-bottom: 4px; letter-spacing: 1px; }
+        .status-text { font-size: 0.95rem; color: #fff; text-shadow: 0 0 6px rgba(0,240,255,0.5); }
 
         /* Holographic Pop-up Window ("Look at this") */
         #holo-window {
@@ -160,12 +163,6 @@ HUD_HTML = """<!DOCTYPE html>
         .holo-header { font-family: 'Orbitron'; font-size: 0.8rem; color: #fff; border-bottom: 1px solid #00f0ff; padding-bottom: 5px; margin-bottom: 8px; display: flex; justify-content: space-between; }
         .holo-close { cursor: pointer; color: #ff0055; font-weight: bold; }
         .holo-content { font-size: 0.85rem; color: #7dd3fc; line-height: 1.4; }
-
-        footer { grid-column: 1 / 4; display: flex; gap: 10px; align-items: center; background: rgba(2,12,25,0.9); border: 1px solid rgba(0,240,255,0.3); padding: 0 10px; }
-        input { flex: 1; height: 44px; background: rgba(1,6,15,0.9); border: 1px solid rgba(0,240,255,0.5); color: #fff; font-family: 'Share Tech Mono', monospace; font-size: 1rem; padding: 0 14px; outline: none; }
-        input:focus { border-color: #00f0ff; box-shadow: 0 0 12px rgba(0,240,255,0.4); }
-        .btn { padding: 0 18px; height: 44px; background: rgba(0,240,255,0.15); border: 1px solid #00f0ff; color: #00f0ff; cursor: pointer; font-family: 'Orbitron'; font-size: 0.75rem; letter-spacing: 1px; transition: all 0.2s; }
-        .btn:hover { background: rgba(0,240,255,0.3); box-shadow: 0 0 12px #00f0ff; color: #fff; }
     </style>
 </head>
 <body>
@@ -185,58 +182,52 @@ HUD_HTML = """<!DOCTYPE html>
         </div>
     </div>
 
-    <!-- Left Panel: Weather, Calendar & Urgent Schedule -->
+    <!-- Left Panel: Weather & Calendar -->
     <section class="panel">
         <div class="panel-title">ENVIRONMENT & SCHEDULE</div>
-        <div style="color:#7dd3fc; line-height:1.6;" id="weather-widget">
+        <div style="color:#7dd3fc; line-height:1.7;" id="weather-widget">
             <b>Location:</b> Local Grid<br>
-            <b>Weather:</b> Loading atmospheric data...<br>
+            <b>Weather:</b> Calibrating atmospheric sensors...<br>
             <br>
             <b>Upcoming Calendar:</b><br>
-            - 14:00 Briefing / Sync<br>
-            - 18:30 Operational Review<br>
+            - 14:00 Tactical Briefing<br>
+            - 18:30 Core Optimization<br>
             <br>
-            <span style="color:#ffaa00;"><b>Urgent Priorities:</b><br>- Cloud Telemetry Stable<br>- Second Brain Active</span>
+            <span style="color:#ffaa00;"><b>Urgent Priorities:</b><br>- Telemetry Link: Active<br>- Neural Core: Stable</span>
         </div>
     </section>
 
-    <!-- Center Stage: Arc Reactor & Voice Feed -->
+    <!-- Center Stage: Arc Reactor & Live Voice Status -->
     <section class="panel center-stage">
         <div class="core-container">
             <div class="core-ring"></div>
             <div class="core-ring-inner"></div>
             <div class="core" id="arc-core"></div>
         </div>
-        <div id="log">
-            <div class="msg-jarvis">J.A.R.V.I.S.: Continuous vocal link active, Sir. Listening...</div>
+        <div id="hud-status">
+            <div class="status-label">ACTIVE AUDIO FEED</div>
+            <div class="status-text" id="jarvis-status-text">Listening passively, Sir...</div>
         </div>
     </section>
 
-    <!-- Right Panel: News & Custom Interests -->
+    <!-- Right Panel: Intelligence & Interests -->
     <section class="panel">
         <div class="panel-title">INTELLIGENCE & INTERESTS</div>
-        <div style="color:#7dd3fc; line-height:1.6;" id="news-widget">
+        <div style="color:#7dd3fc; line-height:1.7;">
             <b>Global Intelligence:</b><br>
-            - Quantum encryption protocols updated.<br>
-            - Global network latency: 14ms.<br>
+            - Quantum encryption verified.<br>
+            - Network latency: 12ms.<br>
             <br>
             <b>Tracked Interests:</b><br>
-            - Autonomous AI architecture.<br>
+            - Autonomous AI architectures.<br>
             - Cloud infrastructure scaling.<br>
-            - Aerospace propulsion nodes.
+            - Advanced propulsion systems.
         </div>
     </section>
 
-    <footer>
-        <input type="text" id="input" placeholder="Speak freely or transmit directive..." />
-        <button class="btn" id="send-btn">TRANSMIT</button>
-    </footer>
-
     <script>
-        const input = document.getElementById('input');
-        const log = document.getElementById('log');
         const arcCore = document.getElementById('arc-core');
-        const sendBtn = document.getElementById('send-btn');
+        const jarvisStatusText = document.getElementById('jarvis-status-text');
         const holoWindow = document.getElementById('holo-window');
         const holoText = document.getElementById('holo-text');
         const liveClock = document.getElementById('live-clock');
@@ -258,14 +249,14 @@ HUD_HTML = """<!DOCTYPE html>
                     if (data && data.current_weather) {
                         const temp = data.current_weather.temperature;
                         document.getElementById('weather-widget').innerHTML = `
-                            <b>Atmospheric Data:</b> Local Grid<br>
+                            <b>Atmospheric Grid:</b> Local Sector<br>
                             <b>Temperature:</b> ${temp}°C<br>
                             <br>
                             <b>Upcoming Calendar:</b><br>
-                            - 14:00 Briefing / Sync<br>
-                            - 18:30 Operational Review<br>
+                            - 14:00 Tactical Briefing<br>
+                            - 18:30 Core Optimization<br>
                             <br>
-                            <span style="color:#ffaa00;"><b>Urgent Priorities:</b><br>- Cloud Telemetry Stable<br>- Voice Interface Online</span>
+                            <span style="color:#ffaa00;"><b>Urgent Priorities:</b><br>- Telemetry Link: Active<br>- Voice Interface: Online</span>
                         `;
                     }
                 } catch(e) {}
@@ -290,17 +281,21 @@ HUD_HTML = """<!DOCTYPE html>
                 const uk = voices.find(v => v.lang === 'en-GB' || v.name.includes('UK') || v.name.includes('British') || v.name.includes('Daniel') || v.name.includes('Oliver'));
                 if (uk) u.voice = uk;
                 
-                // Dynamic pulsing arc reactor when J.A.R.V.I.S. speaks
-                u.onstart = () => arcCore.classList.add('speaking');
-                u.onend = () => arcCore.classList.remove('speaking');
+                u.onstart = () => {
+                    arcCore.classList.add('speaking');
+                    jarvisStatusText.textContent = text;
+                };
+                u.onend = () => {
+                    arcCore.classList.remove('speaking');
+                    jarvisStatusText.textContent = "Listening passively, Sir...";
+                };
                 window.speechSynthesis.speak(u);
             }
         }
 
-        async function sendCommand(text) {
+        async function processDirective(text) {
             if (!text.trim()) return;
-            log.innerHTML += `<div class="msg-user">&gt; ${text}</div>`;
-            log.scrollTop = log.scrollHeight;
+            jarvisStatusText.textContent = `Processing: "${text}"`;
 
             if (text.toLowerCase().includes("look at this")) {
                 triggerHologram("Target optical feed captured. All parameters verified against security protocols.");
@@ -309,15 +304,13 @@ HUD_HTML = """<!DOCTYPE html>
             try {
                 const res = await fetch('/execute', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text }) });
                 const data = await res.json();
-                log.innerHTML += `<div class="msg-jarvis">J.A.R.V.I.S.: ${data.response}</div>`;
-                log.scrollTop = log.scrollHeight;
                 speak(data.response);
             } catch (err) {
-                log.innerHTML += `<div class="msg-jarvis" style="color:#ff0055;">J.A.R.V.I.S.: Transmission error detected.</div>`;
+                speak("Transmission error detected, Sir.");
             }
         }
 
-        // Always-On Continuous Passive Voice Recognition
+        // Always-On Continuous Passive Voice Recognition (Hands-Free)
         const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
         if (SpeechRecognition) {
             const recognition = new SpeechRecognition();
@@ -327,11 +320,9 @@ HUD_HTML = """<!DOCTYPE html>
 
             recognition.onresult = (event) => {
                 const speechToText = event.results[event.results.length - 1][0].transcript.trim();
-                input.value = speechToText;
-                sendCommand(speechToText);
+                processDirective(speechToText);
             };
 
-            // Auto-restart loop so the mic is always on without clicking anything
             recognition.onend = () => {
                 try { recognition.start(); } catch(e) {}
             };
@@ -340,14 +331,6 @@ HUD_HTML = """<!DOCTYPE html>
                 recognition.start();
             } catch(e) {}
         }
-
-        sendBtn.addEventListener('click', () => {
-            const v = input.value; input.value = ''; sendCommand(v);
-        });
-
-        input.addEventListener('keypress', (e) => {
-            if (e.key === 'Enter') { const v = input.value; input.value = ''; sendCommand(v); }
-        });
     </script>
 </body>
 </html>"""
