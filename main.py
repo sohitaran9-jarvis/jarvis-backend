@@ -36,7 +36,7 @@ def get_second_brain() -> str:
     if not supabase:
         return "MEMORY: Supabase credentials missing."
     try:
-        mems = supabase.table("memories").select("category, content").order("created_at", desc=True).limit(20).execute().data
+        mems = supabase.table("memories").select("category, content").order("created_at", desc=True).limit(25).execute().data
         les = supabase.table("lessons").select("trigger_context, correction").order("created_at", desc=True).limit(15).execute().data
         
         m_str = "\n".join([f"- [{m.get('category','general').upper()}] {m['content']}" for m in mems]) if mems else "No stored memories yet."
@@ -67,8 +67,9 @@ class Directive(BaseModel):
 @app.post("/execute")
 async def execute_directive(payload: Directive):
     if not groq_client:
-        return {"response": "Sir, please configure your GROQ_API_KEY in Render.", "audio_url": None}
+        return {"response": "Sir, please configure your GROQ_API_KEY in Render.", "audio_url": None, "action": None}
 
+    # Auto-save to Supabase when asked to remember
     if supabase and any(w in payload.text.lower() for w in ["remember", "save this", "note that", "store this", "my favorite"]):
         try:
             supabase.table("memories").insert({"category": "preference", "content": payload.text}).execute()
@@ -81,9 +82,9 @@ async def execute_directive(payload: Directive):
     system_prompt = (
         f"Current exact system time and date: {current_time}. "
         "You are J.A.R.V.I.S., Tony Stark's ultra-capable, witty, and human-like AI chief of staff and loyal friend. "
-        "You have deep common sense, expansive knowledge, and full conversational continuity. "
-        "Your permanent long-term memory is loaded below from Supabase. Use it whenever relevant. "
-        "When the user is finishing a task or pausing, proactively and naturally ask a human closing question like 'Is that all, Sir?' or 'Shall I attend to anything else, Sir?'. "
+        "You have absolute real-time awareness and permanent long-term memory via Supabase. "
+        "When asked to place a call or dial a number, immediately confirm you are initiating the telecom bridge and output a phone URI protocol if applicable. "
+        "When the user is finishing a task, wrapping up, or pausing, proactively ask a human closing question like 'Is that all, Sir?'. "
         "Never output markdown formatting, asterisks, brackets, colons, underscores, or bullet points. "
         f"Write strictly in rich, human conversational sentences that can be spoken out loud naturally.\n\n{brain_context}"
     )
@@ -102,12 +103,19 @@ async def execute_directive(payload: Directive):
         clean_reply = re.sub(r'[_*`#\[\]{}:;<>]+', ' ', raw_reply)
         clean_reply = re.sub(r'\s+', ' ', clean_reply).strip()
 
+        # Check if the user requested a phone call
+        action = None
+        phone_match = re.search(r'(\+?[\d\s\-\(\)]{7,}\d)', payload.text)
+        if any(w in payload.text.lower() for w in ["call", "dial", "phone"]) and phone_match:
+            digits = re.sub(r'\D', '', phone_match.group(1))
+            action = f"tel:{digits}"
+
         if any(w in payload.text.lower() for w in ["alert", "cinema", "seat", "amazon", "book", "notify", "telegram", "status", "urgent"]):
             send_telegram(clean_reply)
 
         audio_url = None
         if ELEVENLABS_API_KEY and ELEVENLABS_VOICE_ID:
-            eleven_url = f"https://api.elevenlabs.io/v1/text-to-speech/{ELEVENLABS_VOICE_ID}?optimize_streaming_latency=0"
+            eleven_url = f"https://api.elevenlabs.io/v1/text-to-speech/{ELEVENLABS_VOICE_ID}"
             headers = {
                 "Accept": "audio/mpeg",
                 "Content-Type": "application/json",
@@ -115,8 +123,8 @@ async def execute_directive(payload: Directive):
             }
             body = {
                 "text": clean_reply,
-                "model_id": "eleven_monolingual_v1",
-                "voice_settings": {"stability": 0.45, "similarity_boost": 0.8, "style": 0.2}
+                "model_id": "eleven_multilingual_v2",
+                "voice_settings": {"stability": 0.5, "similarity_boost": 0.75, "style": 0.15}
             }
             try:
                 r = requests.post(eleven_url, json=body, headers=headers)
@@ -126,9 +134,9 @@ async def execute_directive(payload: Directive):
             except Exception:
                 pass
 
-        return {"response": clean_reply, "audio_url": audio_url}
+        return {"response": clean_reply, "audio_url": audio_url, "action": action}
     except Exception as e:
-        return {"response": f"Neural core error {str(e)}", "audio_url": None}
+        return {"response": f"Neural core error {str(e)}", "audio_url": None, "action": None}
 
 HUD_HTML = """<!DOCTYPE html>
 <html lang="en">
@@ -310,28 +318,42 @@ HUD_HTML = """<!DOCTYPE html>
             holoWindow.classList.add('active');
         }
 
-        function speak(text, audioUrl) {
+        function speak(text, audioUrl, actionUrl) {
             jarvisStatusText.textContent = text;
             arcCore.classList.add('speaking');
 
+            const handleEnd = () => {
+                arcCore.classList.remove('speaking');
+                // If J.A.R.V.I.S just asked "Is that all, Sir?" and response indicates conclusion, reset session!
+                if (text.toLowerCase().includes("all")) {
+                    sessionActive = false;
+                    sessionStateLabel.textContent = "SYSTEM STANDBY";
+                    jarvisStatusText.textContent = "Say 'Jarvis' or click core to activate.";
+                } else {
+                    jarvisStatusText.textContent = "Listening continuously, Sir...";
+                }
+
+                // Execute telecommunication action if triggered (e.g. phone dialer)
+                if (actionUrl) {
+                    window.location.href = actionUrl;
+                }
+            };
+
             if (audioUrl) {
                 const audio = new Audio(audioUrl);
-                audio.onended = () => {
-                    arcCore.classList.remove('speaking');
-                    jarvisStatusText.textContent = "Listening continuously, Sir...";
-                };
+                audio.onended = handleEnd;
                 audio.onerror = () => {
-                    fallbackBrowserSpeech(text);
+                    fallbackBrowserSpeech(text, handleEnd);
                 };
                 audio.play().catch(() => {
-                    fallbackBrowserSpeech(text);
+                    fallbackBrowserSpeech(text, handleEnd);
                 });
             } else {
-                fallbackBrowserSpeech(text);
+                fallbackBrowserSpeech(text, handleEnd);
             }
         }
 
-        function fallbackBrowserSpeech(text) {
+        function fallbackBrowserSpeech(text, onEndCallback) {
             if ('speechSynthesis' in window) {
                 window.speechSynthesis.cancel();
                 const u = new SpeechSynthesisUtterance(text);
@@ -344,17 +366,24 @@ HUD_HTML = """<!DOCTYPE html>
                     arcCore.classList.add('speaking');
                     jarvisStatusText.textContent = text;
                 };
-                u.onend = () => {
-                    arcCore.classList.remove('speaking');
-                    jarvisStatusText.textContent = "Listening continuously, Sir...";
-                };
+                u.onend = onEndCallback;
                 window.speechSynthesis.speak(u);
+            } else {
+                onEndCallback();
             }
         }
 
         async function processDirective(text) {
             if (!text.trim()) return;
             jarvisStatusText.textContent = `Processing: "${text}"`;
+
+            // Check if user is confirming session closure ("yes", "all good", etc.) when session was winding down
+            if (sessionActive && (text.toLowerCase().includes("yes") || text.toLowerCase().includes("all good") || text.toLowerCase().includes("that's it"))) {
+                speak("Very well, Sir. Standing by.", null, null);
+                sessionActive = false;
+                sessionStateLabel.textContent = "SYSTEM STANDBY";
+                return;
+            }
 
             if (text.toLowerCase().includes("look at this")) {
                 triggerHologram("Target optical feed captured. All parameters verified against security protocols.");
@@ -369,9 +398,9 @@ HUD_HTML = """<!DOCTYPE html>
                     body: JSON.stringify({ text, client_time: clientTime }) 
                 });
                 const data = await res.json();
-                speak(data.response, data.audio_url);
+                speak(data.response, data.audio_url, data.action);
             } catch (err) {
-                speak("Transmission error detected, Sir.", null);
+                speak("Transmission error detected, Sir.", null, null);
             }
         }
 
@@ -380,7 +409,7 @@ HUD_HTML = """<!DOCTYPE html>
             if (sessionActive) {
                 sessionStateLabel.textContent = "J.A.R.V.I.S. ACTIVE";
                 jarvisStatusText.textContent = "Session initialized. Speak freely, Sir.";
-                speak("Systems online. How may I assist you today, Sir?", null);
+                speak("Systems online. How may I assist you today, Sir?", null, null);
             } else {
                 sessionStateLabel.textContent = "SYSTEM STANDBY";
                 jarvisStatusText.textContent = "Session paused.";
@@ -407,11 +436,11 @@ HUD_HTML = """<!DOCTYPE html>
                         if (command.length > 1) {
                             processDirective(command);
                         } else {
-                            speak("Online and listening, Sir.", null);
+                            speak("Online and listening, Sir.", null, null);
                         }
                     }
                 } else {
-                    processDirective(speechToText);
+                    processDirective(speechToTest);
                 }
             };
 
